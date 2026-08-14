@@ -1,13 +1,69 @@
 import * as React from 'react'
+import { connect } from 'react-redux'
+import { bindActionCreators } from 'redux'
+import { connectionActions } from '../actions'
+import { AppState } from '../reducers'
+import { toMqttConnection, ConnectionOptions } from '../model/ConnectionOptions'
+import PauseButton from '../components/Layout/PauseButton'
 import { useMqttStore } from './store/mqttStore'
+
+interface Props {
+  selectedConnection?: ConnectionOptions
+  connected: boolean
+  actions: {
+    connection: typeof connectionActions
+  }
+}
+
+/**
+ * Connect/Disconnect toggle — moved here from the old TitleBar banner
+ * (removed; this dashboard header is now the only place these live). Uses
+ * the same connect(mqttOptions, connectionId) call ConnectionItem's own
+ * "double-click to connect" does, against whichever connection is
+ * currently selected in the connection manager.
+ */
+function ConnectionControls({ selectedConnection, connected, actions }: Props) {
+  if (connected) {
+    return (
+      <button type="button" className="cmom-topbar-button cmom-topbar-button--danger" onClick={() => actions.connection.disconnect()}>
+        Disconnect
+      </button>
+    )
+  }
+
+  const handleConnect = () => {
+    if (!selectedConnection) return
+    const mqttOptions = toMqttConnection(selectedConnection)
+    if (mqttOptions) {
+      actions.connection.connect(mqttOptions, selectedConnection.id)
+    }
+  }
+
+  return (
+    <button type="button" className="cmom-topbar-button" onClick={handleConnect} disabled={!selectedConnection}>
+      Connect
+    </button>
+  )
+}
+
+const ConnectedConnectionControls = connect(
+  (state: AppState) => ({
+    selectedConnection: state.connectionManager.selected ? state.connectionManager.connections[state.connectionManager.selected] : undefined,
+    connected: state.connection.connected,
+  }),
+  (dispatch: any) => ({
+    actions: { connection: bindActionCreators(connectionActions, dispatch) },
+  })
+)(ConnectionControls)
 
 /**
  * Top bar mirroring TopBar.qml: app title, pulsing broker connection dot,
- * broker host, and device counts — separated by 1px vertical dividers.
- * The reference also shows UPTIME/LATENCY/role/logout, but we have no real
- * data behind those (no session uptime tracking, no per-message latency
- * measurement, no auth/role system in this app), so they're omitted rather
- * than faked.
+ * broker host, device counts, and (moved here from the removed TitleBar
+ * banner) pause/connect/disconnect controls — separated by 1px vertical
+ * dividers. The reference also shows UPTIME/LATENCY/role/logout, but we
+ * have no real data behind those (no session uptime tracking, no
+ * per-message latency measurement, no auth/role system), so they're
+ * omitted rather than faked.
  */
 export default function TopBar() {
   const connected = useMqttStore(s => s.connected)
@@ -49,6 +105,14 @@ export default function TopBar() {
         <span className="cmom-label">Pump Stations:</span>
         <span style={{ color: 'var(--cmom-text-primary)', fontWeight: 700 }}>{pumpCount}</span>
       </div>
+
+      <div className="cmom-topbar-divider" />
+
+      <div className="cmom-topbar-item" style={{ color: 'var(--cmom-text-muted)' }}>
+        <PauseButton />
+      </div>
+
+      <ConnectedConnectionControls />
     </div>
   )
 }

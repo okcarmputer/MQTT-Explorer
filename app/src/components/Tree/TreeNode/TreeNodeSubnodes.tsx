@@ -7,6 +7,7 @@ import { SettingsState } from '../../../reducers/Settings'
 import { sortedNodes } from '../../../sortedNodes'
 import { TopicViewModel } from '../../../model/TopicViewModel'
 import { treeActions } from '../../../actions'
+import { subtreeMatchesFilter } from '../topicFilter'
 
 export interface Props {
   treeNode: q.TreeNode<TopicViewModel>
@@ -48,7 +49,13 @@ function TreeNodeSubnodes(props: Props) {
   const alreadyAdded = useStagedRendering(props.treeNode)
 
   return useMemo(() => {
-    const nodes = sortedNodes(props.settings, props.treeNode).slice(0, alreadyAdded)
+    const filterLower = props.filter ? props.filter.trim().toLowerCase() : ''
+    const allNodes = sortedNodes(props.settings, props.treeNode)
+    // Branches with no match anywhere inside them are excluded entirely
+    // while filtering — not just visually collapsed, actually not rendered
+    // — so the tree reads as "only what's being listened to that matches".
+    const matchingNodes = filterLower ? allNodes.filter(node => subtreeMatchesFilter(node, filterLower)) : allNodes
+    const nodes = matchingNodes.slice(0, alreadyAdded)
     const listItems = nodes.map(node => (
       <TreeNode
         key={`${node.hash()}-${props.filter}`}
@@ -57,11 +64,12 @@ function TreeNodeSubnodes(props: Props) {
         selectTopicAction={props.selectTopicAction}
         settings={props.settings}
         actions={props.actions}
+        filter={props.filter}
       />
     ))
 
     return <span className={props.classes.list}>{listItems}</span>
-  }, [alreadyAdded, props.treeNode.lastUpdate, props.theme, props.settings])
+  }, [alreadyAdded, props.treeNode.lastUpdate, props.theme, props.settings, props.filter])
 }
 
 const styles = (theme: Theme) => ({

@@ -384,13 +384,49 @@
   white-space: nowrap;
 }
 
+.cmom-topbar-button {
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: var(--cmom-radius-sm);
+  border: 1px solid var(--cmom-accent);
+  background: color-mix(in srgb, var(--cmom-accent) 15%, transparent);
+  color: var(--cmom-accent);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+  white-space: nowrap;
+}
+
+.cmom-topbar-button:hover {
+  background: color-mix(in srgb, var(--cmom-accent) 28%, transparent);
+}
+
+.cmom-topbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cmom-topbar-button--danger {
+  border-color: var(--cmom-status-offline);
+  background: color-mix(in srgb, var(--cmom-status-offline) 15%, transparent);
+  color: var(--cmom-status-offline);
+}
+
+.cmom-topbar-button--danger:hover {
+  background: color-mix(in srgb, var(--cmom-status-offline) 28%, transparent);
+}
+
 /* Device card grid (Overview live values + Flow Monitors/Pump Stations),
    mirroring DeviceCard.qml: status dot + id/type header, key/value detail
    rows, bottom action button. */
 .cmom-device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-  gap: var(--cmom-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: var(--cmom-space-4);
+  align-items: start;
 }
 
 .cmom-device-card {
@@ -398,6 +434,11 @@
   flex-direction: column;
   gap: var(--cmom-space-2);
   padding: var(--cmom-space-4);
+  /* Each card can be dragged taller when its detail list is long, instead
+     of every card in the grid being forced to the tallest one's height. */
+  resize: vertical;
+  overflow: auto;
+  min-height: 190px;
 }
 
 .cmom-device-card-header {
@@ -424,6 +465,45 @@
   row-gap: 6px;
   column-gap: var(--cmom-space-2);
   font-size: 12px;
+}
+
+/* Collapsible "attributes" disclosure inside a device card (site_info
+   fields) — closed by default so cards aren't crowded with fields the
+   measurements matter more than; click to expand. */
+.cmom-device-card-attrs {
+  border-top: 1px solid var(--cmom-border);
+  padding-top: var(--cmom-space-2);
+}
+
+.cmom-device-card-attrs summary {
+  cursor: pointer;
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cmom-text-muted);
+  list-style: none;
+}
+
+.cmom-device-card-attrs summary::-webkit-details-marker {
+  display: none;
+}
+
+.cmom-device-card-attrs summary::before {
+  content: '▸ ';
+}
+
+.cmom-device-card-attrs[open] summary::before {
+  content: '▾ ';
+}
+
+.cmom-device-card-attrs summary:hover {
+  color: var(--cmom-text-primary);
+}
+
+.cmom-device-card-attrs .cmom-device-card-details {
+  margin-top: var(--cmom-space-2);
 }
 
 .cmom-device-card-action {
@@ -471,4 +551,64 @@
 .cmom-stat-tile-subtitle {
   font-size: 10px;
   color: var(--cmom-text-muted);
+}
+
+/*
+ * Search box, relocated from the removed TitleBar banner into the Explorer
+ * tab itself — SearchBar.tsx keeps its own MUI styling (white text over a
+ * translucent overlay), which already reads fine on any dark background.
+ */
+.cmom-explorer-search-bar {
+  padding: var(--cmom-space-3) var(--cmom-space-4) 0;
+  background: var(--cmom-bg);
+}
+
+/*
+ * Explorer tab's settings disclosure (ExplorerSettings.tsx) — replaces the
+ * old slide-out Drawer. Closed by default; MUI child controls (Select,
+ * Switch, InputLabel) keep their own theme styling, this only wraps them.
+ */
+.cmom-explorer-settings {
+  margin: var(--cmom-space-3) var(--cmom-space-4) 0;
+  padding: var(--cmom-space-3);
+}
+
+.cmom-explorer-settings summary {
+  cursor: pointer;
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cmom-text-muted);
+  list-style: none;
+}
+
+.cmom-explorer-settings summary::-webkit-details-marker {
+  display: none;
+}
+
+.cmom-explorer-settings summary::before {
+  content: '▸ ';
+}
+
+.cmom-explorer-settings[open] summary::before {
+  content: '▾ ';
+}
+
+.cmom-explorer-settings summary:hover {
+  color: var(--cmom-text-primary);
+}
+
+.cmom-explorer-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: var(--cmom-space-2);
+  margin-top: var(--cmom-space-3);
+}
+
+.cmom-explorer-settings-field {
+  background: var(--cmom-surface-elevated);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
 }

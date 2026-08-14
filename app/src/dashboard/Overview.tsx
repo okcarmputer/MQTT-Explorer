@@ -6,7 +6,8 @@ import * as q from '../../../backend/src/Model'
 import { Severity, severityColors, severityOrder } from './config'
 import { useFleetAnomalySeverities } from './useTopicChildren'
 import { useAnomalyFeed } from './useAnomalyFeed'
-import { DeviceSnapshot, useMqttStore } from './store/mqttStore'
+import { useMqttStore } from './store/mqttStore'
+import { useFlowMeasurements } from './useFlowMeasurements'
 import DeviceCard from './DeviceCard'
 
 interface Props {
@@ -66,12 +67,20 @@ function RecentEventsPanel({ events }: { events: ReturnType<typeof useAnomalyFee
   )
 }
 
+interface LiveDeviceRow {
+  key: string
+  severity: Severity
+  lastUpdate: number
+  details: { label: string; value: React.ReactNode }[]
+  stale?: boolean
+}
+
 /**
- * Live device grid section — one DeviceCard per tracked device, worst
- * severity first, capped to `limit` since a fleet can run to 150+ sites and
- * this is an at-a-glance view, not the full list (that's what the Flow
- * Monitors / Pump Stations tabs are for, linked via each card's "View
- * Details" and the section's "View all" link).
+ * Live device grid section — one DeviceCard per device. `limit` caps how
+ * many show (worst severity first) with a "View all" link to the full tab;
+ * omit it to always show every row passed in (used for Flow Monitors, since
+ * the caller already filters out sites with no measurements — see Overview
+ * below — so everything left here is meant to be shown).
  */
 function LiveDeviceSection({
   title,
@@ -79,10 +88,10 @@ function LiveDeviceSection({
   deviceType,
   linkPrefix,
   viewAllTo,
-  limit = 8,
+  limit,
 }: {
   title: string
-  devices: DeviceSnapshot[]
+  devices: LiveDeviceRow[]
   deviceType: string
   linkPrefix: string
   viewAllTo: string
@@ -93,7 +102,7 @@ function LiveDeviceSection({
     () => [...devices].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]),
     [devices]
   )
-  const shown = sorted.slice(0, limit)
+  const shown = limit ? sorted.slice(0, limit) : sorted
 
   return (
     <div>
@@ -106,12 +115,12 @@ function LiveDeviceSection({
             className="cmom-label"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cmom-accent)' }}
           >
-            View all ({devices.length}) →
+            {limit && devices.length > limit ? `View all (${devices.length}) →` : `Open full view →`}
           </button>
         )}
       </div>
       {devices.length === 0 ? (
-        <div style={{ opacity: 0.7, fontSize: 12 }}>No devices seen on this topic prefix yet.</div>
+        <div style={{ opacity: 0.7, fontSize: 12 }}>No sites with measurements yet.</div>
       ) : (
         <div className="cmom-device-grid">
           {shown.map(d => (
@@ -121,8 +130,9 @@ function LiveDeviceSection({
               deviceType={deviceType}
               severity={d.severity}
               lastUpdate={d.lastUpdate}
-              details={[]}
+              details={d.details}
               linkTo={`${linkPrefix}/${d.key}`}
+              stale={d.stale}
             />
           ))}
         </div>
@@ -149,8 +159,44 @@ function Overview({ tree }: Props) {
   const health = useMqttStore(s => s.health)
   const flowMonitors = useMqttStore(s => s.flowMonitors)
   const pumpStations = useMqttStore(s => s.pumpStations)
-  const flowRows = React.useMemo(() => Object.values(flowMonitors), [flowMonitors])
-  const pumpRows = React.useMemo(() => Object.values(pumpStations), [pumpStations])
+
+  // Live Level/Velocity/Flow readings + each site's actual last-reading
+  // time, read straight from the channel nodes (see useFlowMeasurements) —
+  // the store snapshot only carries severity + the site node's own lastUpdate.
+  const flowMeasurements = useFlowMeasurements(flowDevices)
+
+  // A site with no Level/Velocity/Flow reading yet hasn't actually
+  // published anything meaningful — treated as "not updated" rather than
+  // OK, and left out of the Overview grid entirely (it'll appear here as
+  // soon as it publishes a first reading; the full Flow Monitors tab still
+  // lists it, with a toggle to hide/show these). Overview intentionally
+  // shows only site, last-reading time, and measurements — no site_info
+  // attributes (name/location/etc); those live behind "View Details" and
+  // the Flow Monitors tab's own attributes dropdown, not here.
+  const flowRows = React.useMemo<LiveDeviceRow[]>(() => {
+    const rows: LiveDeviceRow[] = []
+    Object.values(flowMonitors).forEach(row => {
+      const measurement = flowMeasurements[row.key]
+      const readings = measurement?.readings ?? {}
+      if (Object.keys(readings).length === 0) {
+        return
+      }
+      const details = (['level', 'velocity', 'flow'] as const)
+        .filter(k => readings[k])
+        .map(k => ({ label: `${readings[k]!.label} (${readings[k]!.unit})`, value: readings[k]!.value }))
+      rows.push({
+        key: row.key,
+        severity: row.severity,
+        lastUpdate: measurement?.lastUpdate ?? row.lastUpdate,
+        details,
+      })
+    })
+    return rows
+  }, [flowMonitors, flowMeasurements])
+  const pumpRows = React.useMemo<LiveDeviceRow[]>(
+    () => Object.values(pumpStations).map(row => ({ key: row.key, severity: row.severity, lastUpdate: row.lastUpdate, details: [] })),
+    [pumpStations]
+  )
 
   return (
     <div style={{ padding: 'var(--cmom-space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--cmom-space-5)' }}>
@@ -161,7 +207,7 @@ function Overview({ tree }: Props) {
           color={connected ? 'var(--cmom-status-online)' : 'var(--cmom-status-offline)'}
           subtitle={connected ? 'connected' : health === 'connecting' ? 'connecting' : 'disconnected'}
         />
-        <StatTile label="Flow Monitors" value={flowRows.length} subtitle="tracked" />
+        <StatTile label="Flow Monitors" value={flowRows.length} subtitle="with readings" />
         <StatTile label="Pump Stations" value={pumpRows.length} subtitle="tracked" />
         {severityOrder.map(s => (
           <StatTile key={s} label={s} value={counts[s]} color={severityColors[s]} subtitle="anomaly types" />
@@ -182,6 +228,7 @@ function Overview({ tree }: Props) {
         deviceType="Pump Station"
         linkPrefix="/pump-stations"
         viewAllTo="/pump-stations"
+        limit={8}
       />
 
       <div>

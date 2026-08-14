@@ -23,6 +23,13 @@ export interface Props {
   // midpoint instead of right-aligning to the latest data point.
   centerNow?: boolean
   color?: string
+  // Overrides the axis/grid color that otherwise comes from the global MUI
+  // theme (theme.palette.text.secondary/divider). Needed by callers that
+  // force a dark background regardless of the app's light/dark theme
+  // setting (the CMOM dashboard's TrendPanel) — without this, axis text can
+  // render near-invisible (dark grey theme text on a near-black background).
+  axisColor?: string
+  gridColor?: string
 }
 
 const CHART_HEIGHT = 150
@@ -62,6 +69,8 @@ export default memo((props: Props) => {
 
   const paletteColor = theme.palette.mode === 'light' ? theme.palette.secondary.dark : theme.palette.primary.light
   const color = props.color ? props.color : paletteColor
+  const axisColor = props.axisColor ?? theme.palette.text.secondary
+  const gridColor = props.gridColor ?? theme.palette.divider
 
   const highlightSelectedPoint = useCallback(
     (point: Point) => {
@@ -170,22 +179,22 @@ export default memo((props: Props) => {
             yScale={{ type: 'linear', domain: hasData ? yDomain : dummyDomain }}
             onPointerOut={onMouseLeave}
           >
-            <Grid rows columns={false} stroke={theme.palette.divider} strokeOpacity={0.3} />
+            <Grid rows columns={false} stroke={gridColor} strokeOpacity={0.3} />
             <Axis
               orientation="left"
               numTicks={5}
               tickFormat={formatYAxis}
-              stroke={theme.palette.text.secondary}
-              tickStroke={theme.palette.text.secondary}
-              tickLabelProps={() => ({ fontSize: 11, fill: theme.palette.text.secondary })}
+              stroke={axisColor}
+              tickStroke={axisColor}
+              tickLabelProps={() => ({ fontSize: 11, fill: axisColor })}
             />
             <Axis
               orientation="bottom"
               numTicks={4}
               tickFormat={formatXAxis}
-              stroke={theme.palette.text.secondary}
-              tickStroke={theme.palette.text.secondary}
-              tickLabelProps={() => ({ fontSize: 10, fill: theme.palette.text.secondary, textAnchor: 'middle' })}
+              stroke={axisColor}
+              tickStroke={axisColor}
+              tickLabelProps={() => ({ fontSize: 10, fill: axisColor, textAnchor: 'middle' })}
             />
             <LineSeries
               dataKey="line"

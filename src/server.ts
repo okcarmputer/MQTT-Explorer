@@ -17,7 +17,7 @@ import { Rpc } from '../events/EventSystem/Rpc'
 import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogRequest'
 import { getAppVersion, writeToFile, readFromFile, addMqttConnectionEvent } from '../events'
 import { RpcEvents } from '../events/EventsV2'
-import { getFlowMonitorBaseline, getFlowMonitorHistory } from './sqlReporting'
+import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo } from './sqlReporting'
 
 const PORT = process.env.PORT || 3000
 const CREDENTIALS_PATH = path.join(process.cwd(), 'data', 'credentials.json')
@@ -372,6 +372,15 @@ async function startServer() {
     } catch (error) {
       console.error('[SQL] getFlowMonitorHistory failed:', error instanceof Error ? error.message : error)
       return { configured: true, siteNumber, points: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorPortInfo, async ({ siteNumber }) => {
+    try {
+      return await getFlowMonitorPortInfo(siteNumber)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorPortInfo failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, ports: [] }
     }
   })
 

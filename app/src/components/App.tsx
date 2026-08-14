@@ -9,7 +9,6 @@ import ConfirmationDialog from './ConfirmationDialog'
 import ConnectionSetup from './ConnectionSetup/ConnectionSetup'
 import ErrorBoundary from './ErrorBoundary'
 import Notification from './Layout/Notification'
-import TitleBar from './Layout/TitleBar'
 import UpdateNotifier from './UpdateNotifier'
 import { AboutDialog } from './AboutDialog'
 import { AppState } from '../reducers'
@@ -17,14 +16,12 @@ import { ConfirmationRequest } from '../reducers/Global'
 import { globalActions, settingsActions } from '../actions'
 ;(window as any).global = window
 
-const Settings = React.lazy(() => import('./SettingsDrawer/Settings'))
 const ContentView = React.lazy(() => import('./Layout/ContentView'))
 const DashboardTabs = React.lazy(() => import('../dashboard/DashboardTabs'))
 
 interface Props {
   connectionId: string
   classes: any
-  settingsVisible: boolean
   error?: string
   notification?: string
   actions: typeof globalActions
@@ -34,6 +31,12 @@ interface Props {
   aboutDialogVisible: boolean
 }
 
+// The old TitleBar banner (hamburger → Settings drawer, search, title,
+// pause/disconnect) is gone — search lived nowhere useful outside Explorer,
+// pause/connect/disconnect now live in the dashboard's own TopBar, and
+// Settings now lives inline in the Explorer tab (see ExplorerSettings.tsx).
+// This app no longer has anything that needs a slide-over "shift" of the
+// main content, so there's just one content class now, not a pair.
 class App extends React.PureComponent<Props, {}> {
   constructor(props: any) {
     super(props)
@@ -65,14 +68,11 @@ class App extends React.PureComponent<Props, {}> {
   }
 
   public render() {
-    const { settingsVisible } = this.props
-    const { content, contentShift, centerContent, paneDefaults, heightProperty } = this.props.classes
+    const { content, centerContent, paneDefaults, heightProperty } = this.props.classes
 
     if (this.props.launching) {
       return null
     }
-
-    const anyProps: any = {}
 
     return (
       <div className={centerContent}>
@@ -85,14 +85,8 @@ class App extends React.PureComponent<Props, {}> {
             onClose={() => this.props.actions.toggleAboutDialogVisibility()}
           />
           {this.renderNotification()}
-          <React.Suspense fallback={<div />}>
-            <Settings {...anyProps} />
-          </React.Suspense>
           <div className={centerContent}>
-            <div className={`${settingsVisible ? contentShift : content}`}>
-              <TitleBar />
-            </div>
-            <div className={settingsVisible ? contentShift : content}>
+            <div className={content}>
               <React.Suspense fallback={<div />}>
                 <DashboardTabs
                   heightProperty={heightProperty}
@@ -119,7 +113,6 @@ class App extends React.PureComponent<Props, {}> {
 }
 
 const styles = (theme: Theme) => {
-  const drawerWidth = 300
   const contentBaseStyle = {
     width: '100vw',
     backgroundColor: theme.palette.background.default,
@@ -127,13 +120,16 @@ const styles = (theme: Theme) => {
 
   return {
     heightProperty: {
-      height: '100%', // 'calc(100vh - 64px) !important',
+      height: '100%',
     },
     paneDefaults: {
       backgroundColor: theme.palette.background.default,
       color: theme.palette.text.primary,
       display: 'block' as const,
-      height: 'calc(100vh - 64px)',
+      // 100%, not a hardcoded viewport calc — ContentView (the only consumer)
+      // is nested inside the dashboard's Sidebar/TopBar shell now, so it
+      // needs to fill whatever height its actual container has.
+      height: '100%',
     },
     centerContent: {
       width: '100vw',
@@ -141,20 +137,6 @@ const styles = (theme: Theme) => {
     },
     content: {
       ...contentBaseStyle,
-      transition: theme.transitions.create('transform', {
-        easing: theme.transitions.easing.sharp,
-        duration: theme.transitions.duration.leavingScreen,
-      }),
-      transform: 'translateX(0px)',
-    },
-    contentShift: {
-      ...contentBaseStyle,
-      backgroundColor: theme.palette.background.default,
-      transition: theme.transitions.create('transform', {
-        easing: theme.transitions.easing.easeOut,
-        duration: theme.transitions.duration.enteringScreen,
-      }),
-      transform: `translateX(${drawerWidth}px)`,
     },
   }
 }
@@ -165,7 +147,6 @@ const mapDispatchToProps = (dispatch: any) => ({
 })
 
 const mapStateToProps = (state: AppState) => ({
-  settingsVisible: state.globalState.get('settingsVisible'),
   connectionId: state.connection.connectionId,
   error: state.globalState.get('error'),
   notification: state.globalState.get('notification'),

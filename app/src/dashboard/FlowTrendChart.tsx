@@ -79,20 +79,24 @@ export default function FlowTrendChart({ title, unit, points, channel }: Props) 
       </div>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#2a3139" />
           <XAxis
             dataKey="time"
             type="number"
             domain={['dataMin', 'dataMax']}
             tickFormatter={t => new Date(t).toLocaleTimeString([], { month: 'numeric', day: 'numeric', hour: '2-digit' })}
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: '#8b949e' }}
+            stroke="#3a424c"
           />
-          <YAxis tick={{ fontSize: 11 }} width={48} />
+          <YAxis tick={{ fontSize: 11, fill: '#8b949e' }} stroke="#3a424c" width={48} />
           <Tooltip
             labelFormatter={t => new Date(t as number).toLocaleString()}
             formatter={(v: number) => (v === null || v === undefined ? '—' : v.toFixed(2))}
+            contentStyle={{ background: '#1c2229', border: '1px solid #2a3139', borderRadius: 4 }}
+            labelStyle={{ color: '#e6edf3' }}
+            itemStyle={{ color: '#e6edf3' }}
           />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Legend wrapperStyle={{ fontSize: 11, color: '#8b949e' }} />
           <Line
             type="monotone"
             dataKey="mean"

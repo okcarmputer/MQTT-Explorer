@@ -10,6 +10,8 @@ import { ChartParameters } from '../../reducers/Charts'
 import { Sidebar } from '../Sidebar'
 import MobileTabs from './MobileTabs'
 import PublishTab from '../Sidebar/PublishTab'
+import ExplorerSettings from '../../dashboard/ExplorerSettings'
+import SearchBar from './SearchBar'
 
 // Type cast to any to work around React 18 compatibility issues with react-split-pane 0.1.x
 const ReactSplitPane = ReactSplitPaneImport as any
@@ -123,7 +125,10 @@ function ContentView(props: Props) {
     const mobileContainerStyle: React.CSSProperties = {
       display: 'flex',
       flexDirection: 'column',
-      height: 'calc(100vh - 64px)', // Full viewport minus titlebar
+      // Fills whatever height its container (the dashboard's Explorer pane)
+      // actually has, rather than assuming it sits directly under a single
+      // 64px titlebar — it's nested under the dashboard's TopBar too now.
+      height: '100%',
       width: '100%',
     }
 
@@ -186,66 +191,72 @@ function ContentView(props: Props) {
 
   // Desktop view with split panes
   return (
-    <div className={props.paneDefaults}>
-      <span>
-        <ReactSplitPane
-          step={20}
-          primary="second"
-          className={props.heightProperty}
-          split="vertical"
-          minSize={0}
-          size={sidebarWidth}
-          onChange={(size: number) => setSidebarWidth(size)}
-          onDragFinished={closeSidebarCompletelyIfItSitsOnTheEdge}
-          allowResize
-          style={{ height: '100%' }}
-          pane1Style={{ overflowX: 'hidden' }}
-          resizerStyle={{ height: '100%' }}
-        >
-          <span>
-            <ReactSplitPane
-              step={10}
-              split="horizontal"
-              minSize={0}
-              size={height}
-              allowResize
-              style={{ height: 'calc(100vh - 64px)' }}
-              pane1Style={{ maxHeight: '100%' }}
-              pane2Style={{ borderTop: '1px solid #999', display: 'flex' }}
-              onChange={(size: number) => setHeight(size)}
-              onDragFinished={closeDrawerCompletelyIfItSitsOnTheEdge}
-            >
-              <Tree />
-              {/** Passing height constraints via flex options down */}
+    <div className={props.paneDefaults} style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="cmom-dashboard cmom-explorer-search-bar">
+        <SearchBar />
+      </div>
+      <ExplorerSettings />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <span>
+          <ReactSplitPane
+            step={20}
+            primary="second"
+            className={props.heightProperty}
+            split="vertical"
+            minSize={0}
+            size={sidebarWidth}
+            onChange={(size: number) => setSidebarWidth(size)}
+            onDragFinished={closeSidebarCompletelyIfItSitsOnTheEdge}
+            allowResize
+            style={{ height: '100%' }}
+            pane1Style={{ overflowX: 'hidden' }}
+            resizerStyle={{ height: '100%' }}
+          >
+            <span>
+              <ReactSplitPane
+                step={10}
+                split="horizontal"
+                minSize={0}
+                size={height}
+                allowResize
+                style={{ height: '100%' }}
+                pane1Style={{ maxHeight: '100%' }}
+                pane2Style={{ borderTop: '1px solid #999', display: 'flex' }}
+                onChange={(size: number) => setHeight(size)}
+                onDragFinished={closeDrawerCompletelyIfItSitsOnTheEdge}
+              >
+                <Tree />
+                {/** Passing height constraints via flex options down */}
+                <div
+                  ref={heightRef}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    height: '100%',
+                    width: '100%',
+                  }}
+                >
+                  {/** Resize detector must not be in the scroll zone, it needs to detect actual available size */}
+                  <ChartPanel />
+                </div>
+              </ReactSplitPane>
+            </span>
+            <div ref={widthRef} style={{ height: '100%' }}>
               <div
-                ref={heightRef}
+                className={props.paneDefaults}
                 style={{
-                  flex: 1,
-                  display: 'flex',
+                  minWidth: '250px',
                   height: '100%',
-                  width: '100%',
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
                 }}
               >
-                {/** Resize detector must not be in the scroll zone, it needs to detect actual available size */}
-                <ChartPanel />
+                <Sidebar connectionId={props.connectionId} />
               </div>
-            </ReactSplitPane>
-          </span>
-          <div ref={widthRef} style={{ height: '100%' }}>
-            <div
-              className={props.paneDefaults}
-              style={{
-                minWidth: '250px',
-                height: '100%',
-                overflowY: 'auto',
-                overflowX: 'hidden',
-              }}
-            >
-              <Sidebar connectionId={props.connectionId} />
             </div>
-          </div>
-        </ReactSplitPane>
-      </span>
+          </ReactSplitPane>
+        </span>
+      </div>
     </div>
   )
 }

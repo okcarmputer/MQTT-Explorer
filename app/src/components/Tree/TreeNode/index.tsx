@@ -13,6 +13,7 @@ import { useDeleteKeyCallback } from './effects/useDeleteKeyCallback'
 import { useIsAllowedToAutoExpandState } from './effects/useIsAllowedToAutoExpandState'
 import { useViewModelSubscriptions } from './effects/useViewModelSubscriptions'
 import { useSelectionState } from './effects/useSelectionState'
+import { nodeMatchesFilter, subtreeMatchesFilter } from '../topicFilter'
 
 export interface Props {
   isRoot?: boolean
@@ -25,10 +26,18 @@ export interface Props {
   selectTopicAction: (treeNode: q.TreeNode<any>) => void
   theme: Theme
   settings: SettingsState
+  filter?: string
 }
 
 function TreeNodeComponent(props: Props) {
-  const { actions, classes, settings, theme, treeNode, lastUpdate, name } = props
+  const { actions, classes, settings, theme, treeNode, lastUpdate, name, filter } = props
+  const filterLower = filter ? filter.trim().toLowerCase() : ''
+  // While filtering: force this branch open if it doesn't match itself but
+  // a descendant does, so the path down to the match is actually visible
+  // instead of requiring the user to manually expand every ancestor.
+  const forceExpandForFilter = Boolean(
+    filterLower && !nodeMatchesFilter(treeNode, filterLower) && subtreeMatchesFilter(treeNode, filterLower)
+  )
   const [collapsedOverride, setCollapsedOverride] = useState<boolean | undefined>(undefined)
   const [selected, selectionLastUpdate, setSelected] = useSelectionState(false)
   const nodeRef = useRef<HTMLDivElement>()
@@ -48,7 +57,9 @@ function TreeNodeComponent(props: Props) {
   )
 
   const isCollapsed =
-    Boolean(collapsedOverride) === collapsedOverride ? Boolean(collapsedOverride) : !isAllowedToAutoExpand
+    Boolean(collapsedOverride) === collapsedOverride
+      ? Boolean(collapsedOverride)
+      : !isAllowedToAutoExpand && !forceExpandForFilter
 
   const didSelectTopic = useCallback(
     (event?: React.MouseEvent) => {
@@ -120,6 +131,7 @@ function TreeNodeComponent(props: Props) {
           selectTopicAction={props.selectTopicAction}
           settings={settings}
           actions={props.actions}
+          filter={filter}
         />
       )
     }
@@ -153,7 +165,7 @@ function TreeNodeComponent(props: Props) {
         {renderNodes()}
       </div>
     )
-  }, [treeNode.lastUpdate, treeNode, name, isCollapsed, selected, theme, mouseOver, settings])
+  }, [treeNode.lastUpdate, treeNode, name, isCollapsed, selected, theme, mouseOver, settings, filter])
 }
 
 export default withStyles(styles, { withTheme: true })(React.memo(TreeNodeComponent))

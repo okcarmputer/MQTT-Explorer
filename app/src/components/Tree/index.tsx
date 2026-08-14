@@ -26,6 +26,7 @@ interface Props {
   host?: string
   paused: boolean
   settings: SettingsState
+  filter?: string
 }
 
 interface State {
@@ -202,6 +203,7 @@ class TreeComponent extends React.PureComponent<Props, State> {
         lastUpdate={tree.lastUpdate}
         actions={this.props.actions}
         selectTopicAction={this.props.actions.selectTopic}
+        filter={this.props.filter}
       />
     )
 
@@ -216,7 +218,9 @@ class TreeComponent extends React.PureComponent<Props, State> {
 const mapStateToProps = (state: AppState) => ({
   tree: state.tree.get('tree'),
   paused: state.tree.get('paused'),
-  filter: state.tree.get('filter'),
+  // The live search box (SearchBar.tsx) writes here, not to the tree
+  // reducer's own (permanently-unset) `filter` field — see topicFilter.ts.
+  filter: state.settings.get('topicFilter'),
   host: state.connection.host,
   settings: state.settings,
 })

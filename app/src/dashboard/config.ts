@@ -49,6 +49,27 @@ export const dashboardConfig = {
   },
 }
 
+export interface FlowChannelConfig {
+  // Topic segment under a site, e.g. flow_monitors/{site}/7 — the literal
+  // Hach data-channel id, confirmed against hachAPI/getSiteMeasurements.py's
+  // CHANNEL_ALLOW_LIST (the site poller only ever fetches these three) and
+  // the project readme ("Type 7=Level, 11=Velocity, 15=Flow").
+  id: string
+  key: 'level' | 'velocity' | 'flow'
+  label: string
+  unit: string
+}
+
+// Single source for which Hach channels are measurements worth surfacing as
+// a live reading (Overview device cards, the Flow Monitors table, and
+// FlowMonitorDetail's trend panels all import this — no second hard-coded
+// copy of channel ids/units).
+export const flowChannels: FlowChannelConfig[] = [
+  { id: '7', key: 'level', label: 'Level', unit: 'inches' },
+  { id: '11', key: 'velocity', label: 'Velocity', unit: 'fps' },
+  { id: '15', key: 'flow', label: 'Flow', unit: 'gpm' },
+]
+
 export function severityFromPayload(payload: string | undefined | null): Severity {
   if (!payload) {
     return 'OK'

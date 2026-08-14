@@ -22,6 +22,7 @@ import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogReques
 import { getAppVersion, writeToFile, readFromFile } from '../events'
 import { backendRpc, backendEvents } from '../events/EventSystem/EventBus'
 import { RpcEvents } from '../events/EventsV2'
+import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo } from './sqlReporting'
 
 registerCrashReporter()
 
@@ -71,6 +72,40 @@ app.whenReady().then(() => {
       data,
     })
   )
+
+  // Direct SQL Server reads for report-style data (baselines, historical
+  // comparisons, port/pipe dimensions) — previously registered only in
+  // src/server.ts (browser/server mode), which meant these hooks hung
+  // forever with no response in the Electron desktop app (no handler on
+  // this RPC topic at all). Same env-var config (SQL_SERVER etc) applies
+  // here; unconfigured still degrades to "unavailable", not an error — see
+  // src/sqlReporting.ts.
+  backendRpc.on(RpcEvents.getFlowMonitorBaseline, async ({ siteNumber }) => {
+    try {
+      return await getFlowMonitorBaseline(siteNumber)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorBaseline failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, channels: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorHistory, async ({ siteNumber, hours }) => {
+    try {
+      return await getFlowMonitorHistory(siteNumber, hours)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorHistory failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, points: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorPortInfo, async ({ siteNumber }) => {
+    try {
+      return await getFlowMonitorPortInfo(siteNumber)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorPortInfo failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, ports: [] }
+    }
+  })
 })
 
 autoUpdater.logger = log
@@ -107,6 +142,15 @@ async function createWindow() {
     },
     icon: iconPath,
   })
+
+  // Hides the native File/Edit/View menu bar (Windows/Linux — macOS's menu
+  // lives in the OS top bar regardless). The application menu itself stays
+  // set via Menu.setApplicationMenu below purely so its accelerators keep
+  // working with no visible bar — in particular View's Ctrl+Plus/Ctrl+-/
+  // Ctrl+0 zoom shortcuts (see MenuTemplate.ts), which the user explicitly
+  // wants to keep.
+  mainWindow.setMenuBarVisibility(false)
+  mainWindow.setAutoHideMenuBar(true)
 
   mainWindow.once('ready-to-show', () => {
     if (mainWindow) {

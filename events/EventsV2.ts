@@ -43,6 +43,9 @@ export const RpcEvents = {
   getFlowMonitorHistory: {
     topic: 'sql/flow-monitor-history',
   } as RpcEvent<FlowMonitorHistoryRequest, FlowMonitorHistoryResponse>,
+  getFlowMonitorPortInfo: {
+    topic: 'sql/flow-monitor-port-info',
+  } as RpcEvent<FlowMonitorPortInfoRequest, FlowMonitorPortInfoResponse>,
 }
 
 // Type definitions
@@ -133,6 +136,32 @@ export interface FlowMonitorHistoryResponse {
   configured: boolean
   siteNumber: string
   points: FlowMonitorHistoryPoint[]
+}
+
+// Pipe/port physical dimensions from dbo.hach_port_info — a site can have
+// more than one port (multiple rows), each with its own shape/dimension.
+// Deliberately narrow to the fields the dashboard actually displays (Shape,
+// DimenstionName/Value/Units — that first one really is misspelled in the
+// SQL schema, kept verbatim); LevelUnits/AreaUnits/FlowUnits/
+// LevelAreaMultiplier/HeadFlowLevel aren't shown anywhere and aren't
+// selected.
+export interface FlowMonitorPortInfoRequest {
+  siteNumber: string
+}
+
+export interface FlowMonitorPortDimension {
+  portId: number | null
+  channels: string | null
+  shape: string | null
+  dimensionName: string | null
+  dimensionValue: number | null
+  dimensionUnits: string | null
+}
+
+export interface FlowMonitorPortInfoResponse {
+  configured: boolean
+  siteNumber: string
+  ports: FlowMonitorPortDimension[]
 }
 
 // Dialog types (browser-compatible versions)

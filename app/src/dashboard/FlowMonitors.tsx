@@ -5,9 +5,11 @@ import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { dashboardConfig } from './config'
 import { useTopicChildren, ChildTopic } from './useTopicChildren'
-import DeviceTable from './DeviceTable'
+import FlowMonitorBoard from './FlowMonitorBoard'
 import FlowMonitorDetail from './FlowMonitorDetail'
 import { useMqttStore } from './store/mqttStore'
+import { useFlowMeasurements } from './useFlowMeasurements'
+import { useFlowSiteInfo } from './useFlowSiteInfo'
 
 interface Props {
   tree?: q.Tree<any>
@@ -40,19 +42,35 @@ function FlowMonitorDetailRoute({ devices }: { devices: ChildTopic[] }) {
 
 function FlowMonitors({ tree }: Props) {
   // The detail route needs the actual tree node (for TopicPlot history etc),
-  // so it still reads through useTopicChildren. The table only needs the
-  // current-value/severity snapshot, so it reads that from the shared store
-  // instead — decoupled from the Explorer tree component.
+  // so it still reads through useTopicChildren. The board only needs the
+  // current-value/severity snapshot plus live measurements/site info.
   const devices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix)
   const flowMonitors = useMqttStore(s => s.flowMonitors)
-  const rows = React.useMemo(() => Object.values(flowMonitors), [flowMonitors])
+  // Level/Velocity/Flow readings + each site's actual last-reading time,
+  // read straight from the channel nodes (see useFlowMeasurements) — the
+  // store only carries severity + the site node's own lastUpdate. Site info
+  // (name/location/etc) comes from the retained .../site_info topic.
+  const measurements = useFlowMeasurements(devices)
+  const siteInfo = useFlowSiteInfo(devices)
+
+  const rows = React.useMemo(
+    () =>
+      Object.values(flowMonitors).map(row => {
+        const measurement = measurements[row.key]
+        return {
+          key: row.key,
+          severity: row.severity,
+          lastUpdate: measurement?.lastUpdate ?? row.lastUpdate,
+          readings: measurement?.readings ?? {},
+          siteInfo: siteInfo[row.key] ?? {},
+        }
+      }),
+    [flowMonitors, measurements, siteInfo]
+  )
 
   return (
     <Routes>
-      <Route
-        path="/flow-monitors"
-        element={<DeviceTable devices={rows} keyLabel="Site ID" linkTo={key => `/flow-monitors/${key}`} />}
-      />
+      <Route path="/flow-monitors" element={<FlowMonitorBoard devices={rows} linkTo={key => `/flow-monitors/${key}`} />} />
       <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} />} />
     </Routes>
   )

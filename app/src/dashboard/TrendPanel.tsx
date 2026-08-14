@@ -80,7 +80,15 @@ export default function TrendPanel({ title, node, dotPath, unit, sqlBaselineText
       </div>
       <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
       <div style={{ marginTop: 4 }}>
-        <TopicPlot node={node} history={node.messageHistory} dotPath={dotPath} timeInterval={timeRange} centerNow />
+        <TopicPlot
+          node={node}
+          history={node.messageHistory}
+          dotPath={dotPath}
+          timeInterval={timeRange}
+          centerNow
+          axisColor="#8b949e"
+          gridColor="#2a3139"
+        />
       </div>
       <div className="cmom-value" style={{ marginTop: 4 }}>
         {valueText !== undefined ? `${valueText}${unit ? ` ${unit}` : ''}` : 'No reading yet'}

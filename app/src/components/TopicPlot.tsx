@@ -17,6 +17,8 @@ interface Props {
   range?: [number?, number?]
   color?: string
   centerNow?: boolean
+  axisColor?: string
+  gridColor?: string
 }
 
 function filterUsingTimeRange(startTime: number | undefined, data: Array<q.Message>) {
@@ -76,6 +78,8 @@ function TopicPlot(props: Props) {
       timeRangeStart={startOffset}
       centerNow={props.centerNow}
       color={props.color}
+      axisColor={props.axisColor}
+      gridColor={props.gridColor}
       range={props.range}
       interpolation={props.interpolation}
       data={data}

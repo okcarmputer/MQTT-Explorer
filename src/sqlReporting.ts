@@ -4,6 +4,8 @@ import {
   FlowMonitorChannelBaseline,
   FlowMonitorHistoryResponse,
   FlowMonitorHistoryPoint,
+  FlowMonitorPortInfoResponse,
+  FlowMonitorPortDimension,
 } from '../events/EventsV2'
 
 /**
@@ -182,4 +184,39 @@ export async function getFlowMonitorHistory(siteNumber: string, hours: number): 
   }))
 
   return { configured: true, siteNumber, points }
+}
+
+// dbo.hach_port_info: one row per port on a site, carrying the pipe/channel
+// shape and physical dimension used to convert level readings to flow.
+// SiteNumber here is the same Hach numeric identifier hach_flow_monitors
+// and the MQTT topic segment use — no SiteID join needed, unlike the
+// comparison_results queries above. "DimenstionName" is the actual (typo'd)
+// column name in the SQL schema, kept verbatim rather than aliased, so this
+// query stays a literal match against what's really in the database.
+const PORT_INFO_QUERY = `
+SELECT
+    PortID, Channels, Shape, DimenstionName, DimensionValue, DimensionUnits
+FROM dbo.hach_port_info
+WHERE SiteNumber = @siteNumber
+ORDER BY PortID;
+`
+
+export async function getFlowMonitorPortInfo(siteNumber: string): Promise<FlowMonitorPortInfoResponse> {
+  if (!isSqlReportingConfigured()) {
+    return { configured: false, siteNumber, ports: [] }
+  }
+
+  const connectedPool = await getPool()
+  const result = await connectedPool.request().input('siteNumber', sql.VarChar(50), siteNumber).query(PORT_INFO_QUERY)
+
+  const ports: FlowMonitorPortDimension[] = result.recordset.map((row: any) => ({
+    portId: row.PortID,
+    channels: row.Channels,
+    shape: row.Shape,
+    dimensionName: row.DimenstionName,
+    dimensionValue: row.DimensionValue,
+    dimensionUnits: row.DimensionUnits,
+  }))
+
+  return { configured: true, siteNumber, ports }
 }

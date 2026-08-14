@@ -4,21 +4,14 @@ import TrendPanel from './TrendPanel'
 import FlowTrendChart from './FlowTrendChart'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
 import { useSqlFlowHistory } from './useSqlFlowHistory'
+import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
+import { flowChannels } from './config'
+import { humanizeKey } from './useFlowSiteInfo'
 
 const HISTORY_RANGE_OPTIONS = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 24 * 7 },
   { label: '30d', hours: 24 * 30 },
-]
-
-// Hach data-channel IDs, confirmed against hachAPI/getSiteMeasurements.py's
-// CHANNEL_ALLOW_LIST (the site poller only ever fetches these three) and the
-// project readme ("Type 7=Level, 11=Velocity, 15=Flow"). The topic segment
-// under a site is this literal channel id, e.g. flow_monitors/{site}/7.
-const FLOW_CHANNELS = [
-  { id: '7', label: 'Level', unit: 'inches' },
-  { id: '11', label: 'Velocity', unit: 'fps' },
-  { id: '15', label: 'Flow', unit: 'gpm' },
 ]
 
 interface Props {
@@ -32,12 +25,41 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
 
   React.useEffect(() => {
     const rerender = () => setTick(t => t + 1)
+    const siteInfoNode = deviceNode.edges['site_info']?.target
     deviceNode.onEdgesChange.subscribe(rerender)
-    return () => deviceNode.onEdgesChange.unsubscribe(rerender)
+    siteInfoNode?.onMessage.subscribe(rerender)
+    return () => {
+      deviceNode.onEdgesChange.unsubscribe(rerender)
+      siteInfoNode?.onMessage.unsubscribe(rerender)
+    }
   }, [deviceNode])
 
   // Only channels this site actually publishes — "only relevant values".
-  const channels = FLOW_CHANNELS.map(c => ({ ...c, node: deviceNode.edges[c.id]?.target })).filter(c => c.node)
+  const channels = flowChannels.map(c => ({ ...c, node: deviceNode.edges[c.id]?.target })).filter(c => c.node)
+
+  // Every field this site's retained site_info payload actually carries —
+  // the detail view is the one place all of it shows, unlike the Overview/
+  // Flow Monitors cards, which keep it collapsed or hidden entirely.
+  const siteInfoNode = deviceNode.edges['site_info']?.target
+  // Re-derives whenever this site_info node receives a new message (the
+  // effect above subscribes to its onMessage for exactly this reason).
+  const siteInfo = React.useMemo(() => {
+    const payload = siteInfoNode?.message?.payload?.toUnicodeString()
+    if (!payload) return {}
+    try {
+      const json = JSON.parse(payload)
+      const out: Record<string, string> = {}
+      Object.keys(json).forEach(key => {
+        const value = json[key]
+        if (value !== null && typeof value !== 'object') {
+          out[key] = String(value)
+        }
+      })
+      return out
+    } catch {
+      return {}
+    }
+  }, [siteInfoNode?.message])
 
   // Pulled directly via SQL (bypasses MQTT entirely) — see
   // Anomaly_Detection/DASHBOARD_INTEGRATION_INSTRUCTIONS.md Part 1 for the
@@ -47,6 +69,12 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
 
   const [historyHours, setHistoryHours] = React.useState(HISTORY_RANGE_OPTIONS[0].hours)
   const history = useSqlFlowHistory(deviceKey, historyHours)
+
+  // Pipe/port shape + dimension (dbo.hach_port_info) — also direct SQL,
+  // also degrades to unavailable rather than erroring (see useSqlFlowBaseline).
+  const portInfo = useSqlFlowPortInfo(deviceKey)
+  const portAttributes = React.useMemo(() => formatPortAttributes(portInfo?.ports ?? []), [portInfo])
+  const attributeRows = [...Object.entries(siteInfo).map(([k, v]) => ({ label: humanizeKey(k), value: v })), ...portAttributes]
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', overflow: 'auto' }}>
@@ -68,6 +96,22 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
       <h2 style={{ marginTop: 0 }}>
         Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
       </h2>
+
+      {attributeRows.length > 0 && (
+        <div className="cmom-card" style={{ padding: 'var(--cmom-space-3, 12px)', marginBottom: 'var(--cmom-space-4, 16px)' }}>
+          <div className="cmom-label" style={{ marginBottom: 'var(--cmom-space-2, 8px)' }}>
+            Site Attributes
+          </div>
+          <div className="cmom-device-card-details">
+            {attributeRows.map(row => (
+              <React.Fragment key={row.label}>
+                <span className="cmom-label">{row.label}:</span>
+                <span>{row.value}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
 
       {channels.length === 0 ? (
         <div style={{ opacity: 0.7 }}>No Level/Velocity/Flow channels seen for this site yet.</div>
