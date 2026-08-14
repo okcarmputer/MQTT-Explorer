@@ -1,0 +1,474 @@
+/*
+ * Shared design tokens for the CMOM dashboard tabs (Overview, Flow Monitors,
+ * Pump Stations, Anomalies, and their drill-down/detail views). Explorer
+ * (the original MQTT-Explorer tree tab) is intentionally untouched — these
+ * variables are scoped under .cmom-dashboard so they never leak into it.
+ *
+ * Visual language ported from the reference Qt/QML "MQTT Device Dashboard"
+ * (dark terminal aesthetic: near-black surfaces, monospace labels, green
+ * accent, translucent status badges). Only the look moved — severity colors
+ * still mirror config.ts's severityColors, and no data logic lives here.
+ */
+
+.cmom-dashboard {
+  --cmom-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --cmom-font-mono: 'Courier New', ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', monospace;
+
+  --cmom-space-1: 4px;
+  --cmom-space-2: 8px;
+  --cmom-space-3: 12px;
+  --cmom-space-4: 16px;
+  --cmom-space-5: 24px;
+
+  --cmom-radius-sm: 4px;
+  --cmom-radius-md: 8px;
+
+  /* Dark terminal palette, ported 1:1 from the reference dashboard */
+  --cmom-bg: #0a0e14;
+  --cmom-surface: #151a21;
+  --cmom-surface-elevated: #1c2229;
+  --cmom-border: #2a3139;
+  --cmom-border-strong: #3a424c;
+  --cmom-panel-bg: #151a21;
+  --cmom-card-bg: #151a21;
+  --cmom-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+  --cmom-text-primary: #e6edf3;
+  --cmom-text-muted: #8b949e;
+  --cmom-text-tertiary: #6e7681;
+  --cmom-hover: #21262d;
+
+  --cmom-accent: #2ea043;
+  --cmom-status-online: #2ea043;
+  --cmom-status-offline: #da3633;
+  --cmom-status-warning: #fb8500;
+
+  --cmom-severity-ok: #9e9e9e;
+  --cmom-severity-low: #ffc107;
+  --cmom-severity-moderate: #ff9800;
+  --cmom-severity-critical: #f44336;
+
+  font-family: var(--cmom-font-mono);
+  font-size: 14px;
+  line-height: 1.45;
+  height: 100%;
+  background: var(--cmom-bg);
+  color: var(--cmom-text-primary);
+}
+
+/* This dashboard is a fixed dark terminal theme, not a light/dark toggle —
+   it always renders dark regardless of OS color-scheme preference. */
+
+.cmom-dashboard h2 {
+  font-family: var(--cmom-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--cmom-text-primary);
+}
+
+/* Section labels ("Unit Status", "Digital Inputs", ...) read as dashboard
+   headers, not document headings — small, muted, spaced caps, monospace. */
+.cmom-dashboard h3 {
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cmom-text-tertiary);
+  margin-top: var(--cmom-space-5);
+  margin-bottom: var(--cmom-space-2);
+}
+
+.cmom-dashboard .cmom-card {
+  background: var(--cmom-surface);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-md);
+  box-shadow: var(--cmom-card-shadow);
+  /* Never let a long value/label push the card wider than its grid cell —
+     text wraps and shrinks with the card instead of spilling out of it. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
+  transition: border-color 120ms ease;
+}
+
+.cmom-dashboard .cmom-card:hover {
+  border-color: var(--cmom-border-strong);
+}
+
+.cmom-dashboard .cmom-card * {
+  min-width: 0;
+}
+
+/*
+ * Responsive card grid: columns are never wider than they need to be and
+ * never narrower than --cmom-grid-min, so cards reflow (not overflow) as
+ * the window shrinks. Set --cmom-grid-min inline per grid to size the
+ * smallest a card is allowed to get before wrapping to a new row.
+ */
+.cmom-dashboard .cmom-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--cmom-grid-min, 140px), 100%), 1fr));
+  gap: var(--cmom-space-2);
+  align-items: stretch;
+}
+
+/* Value text (big numbers/readings) scales down with the card instead of
+   overflowing it at narrow widths. */
+.cmom-dashboard .cmom-value {
+  font-family: var(--cmom-font-mono);
+  font-size: clamp(15px, 3.2cqw, 20px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  color: var(--cmom-text-primary);
+}
+
+.cmom-dashboard .cmom-card {
+  container-type: inline-size;
+}
+
+/* Small uppercase mono label, used for card eyebrows / field names
+   (mirrors the reference's "LAST SEEN:" / "TOTAL DEVICES" styling). */
+.cmom-dashboard .cmom-label {
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cmom-text-tertiary);
+}
+
+/* Translucent status badge — colored border/text over a low-alpha fill of
+   the same color, matching the reference's status/role/severity badges. */
+.cmom-dashboard .cmom-badge {
+  display: inline-block;
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: var(--cmom-radius-sm);
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* Small pulsing status dot (broker/device online indicators) */
+.cmom-dashboard .cmom-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.cmom-dashboard .cmom-status-dot--pulse {
+  animation: cmom-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cmom-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/*
+ * Trend graphs (TrendPanel/FlowTrendChart): a fixed 4-up row so each chart
+ * is 25% of the row's width, collapsing to fewer columns only when the
+ * viewport is too narrow for that to stay usable.
+ */
+.cmom-dashboard .cmom-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--cmom-space-2);
+}
+
+@media (max-width: 1100px) {
+  .cmom-dashboard .cmom-trend-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .cmom-dashboard .cmom-trend-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cmom-dashboard code {
+  font-family: var(--cmom-font-mono);
+  background: var(--cmom-surface-elevated);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
+  padding: 1px 4px;
+  color: var(--cmom-text-primary);
+}
+
+.cmom-dashboard table {
+  font-family: var(--cmom-font);
+}
+
+.cmom-dashboard input,
+.cmom-dashboard select,
+.cmom-dashboard button {
+  font-family: var(--cmom-font);
+  font-size: 13px;
+}
+
+/*
+ * App shell: left Sidebar + right column (TopBar over content), mirroring
+ * the reference Qt/QML app's Main.qml RowLayout/ColumnLayout composition.
+ * Sidebar/TopBar/content each carry the .cmom-dashboard class directly
+ * (custom properties live on that class selector itself, not :root), so
+ * no DOM nesting or duplicated token block is needed to reach them.
+ */
+.cmom-sidebar {
+  width: 220px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--cmom-surface);
+  border-right: 1px solid var(--cmom-border);
+  padding: var(--cmom-space-4) 0;
+  box-sizing: border-box;
+}
+
+.cmom-sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--cmom-space-2);
+  padding: 0 var(--cmom-space-4) var(--cmom-space-4);
+  margin-bottom: var(--cmom-space-2);
+}
+
+.cmom-sidebar-logo-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cmom-radius-sm);
+  background: var(--cmom-accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: var(--cmom-font-mono);
+  flex: 0 0 auto;
+}
+
+.cmom-sidebar-logo-text {
+  font-family: var(--cmom-font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--cmom-text-primary);
+  line-height: 1.2;
+}
+
+.cmom-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--cmom-space-2);
+}
+
+.cmom-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: var(--cmom-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--cmom-text-muted);
+  font-family: var(--cmom-font-mono);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.cmom-nav-item:hover {
+  background: var(--cmom-hover);
+  color: var(--cmom-text-primary);
+}
+
+.cmom-nav-item.cmom-nav-item--active {
+  background: var(--cmom-surface-elevated);
+  color: var(--cmom-text-primary);
+}
+
+.cmom-nav-item.cmom-nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 22%;
+  height: 56%;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--cmom-accent);
+}
+
+.cmom-nav-item.cmom-nav-item--active .cmom-nav-icon {
+  color: var(--cmom-accent);
+}
+
+.cmom-nav-icon {
+  display: flex;
+  align-items: center;
+  color: inherit;
+}
+
+.cmom-nav-icon .MuiSvgIcon-root {
+  font-size: 17px;
+}
+
+.cmom-sidebar-status {
+  margin: auto var(--cmom-space-2) 0;
+  padding: var(--cmom-space-3);
+  border-radius: var(--cmom-radius-md);
+  background: var(--cmom-surface-elevated);
+  box-sizing: border-box;
+}
+
+.cmom-sidebar-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: var(--cmom-space-1);
+}
+
+/* Top bar: app title + broker connection status, mirrors the reference's
+   TopBar.qml (uppercase mono title, pulsing dot, vertical dividers). */
+.cmom-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--cmom-space-4);
+  height: 56px;
+  padding: 0 var(--cmom-space-5);
+  background: var(--cmom-surface);
+  border-bottom: 1px solid var(--cmom-border);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.cmom-topbar-title {
+  font-family: var(--cmom-font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cmom-text-primary);
+  white-space: nowrap;
+}
+
+.cmom-topbar-spacer {
+  flex: 1 1 auto;
+}
+
+.cmom-topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--cmom-border);
+  flex: 0 0 auto;
+}
+
+.cmom-topbar-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Device card grid (Overview live values + Flow Monitors/Pump Stations),
+   mirroring DeviceCard.qml: status dot + id/type header, key/value detail
+   rows, bottom action button. */
+.cmom-device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: var(--cmom-space-3);
+}
+
+.cmom-device-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cmom-space-2);
+  padding: var(--cmom-space-4);
+}
+
+.cmom-device-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cmom-device-card-id {
+  font-family: var(--cmom-font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cmom-text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmom-device-card-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  row-gap: 6px;
+  column-gap: var(--cmom-space-2);
+  font-size: 12px;
+}
+
+.cmom-device-card-action {
+  margin-top: auto;
+  padding-top: var(--cmom-space-2);
+  border-top: 1px solid var(--cmom-border);
+  text-align: center;
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cmom-text-muted);
+  text-decoration: none;
+  display: block;
+  transition: color 120ms ease;
+}
+
+.cmom-device-card-action:hover {
+  color: var(--cmom-accent);
+}
+
+/* Stat tile row (Overview), mirroring DashboardView.qml's 6-up stat grid. */
+.cmom-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: var(--cmom-space-3);
+}
+
+.cmom-stat-tile {
+  padding: var(--cmom-space-4) var(--cmom-space-3);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.cmom-stat-tile-value {
+  font-family: var(--cmom-font-mono);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.cmom-stat-tile-subtitle {
+  font-size: 10px;
+  color: var(--cmom-text-muted);
+}

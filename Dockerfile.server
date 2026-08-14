@@ -1,0 +1,50 @@
+# Server (browser) mode — runs the Express + Socket.io backend and serves the
+# webpack-built app over HTTP, no Electron/display server required. This is
+# the deployment path for a headless Linux box (e.g. reachable behind
+# nginx/oauth2-proxy on a monitoring wall).
+#
+# (The root Dockerfile is a separate image used for CI/UI testing —
+# Playwright/VNC/mosquitto — not for running the dashboard. This one is.)
+#
+# Build:
+#   docker build -f Dockerfile.server -t mqtt-explorer-dashboard .
+# Run:
+#   docker run -d -p 3000:3000 \
+#     -e MQTT_AUTO_CONNECT_HOST=mosquitto \
+#     -e MQTT_AUTO_CONNECT_PORT=1883 \
+#     -v mqtt-explorer-data:/app/data \
+#     mqtt-explorer-dashboard
+
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+
+# Install deps first so this layer is cached unless a package.json/yarn.lock changes.
+COPY package.json yarn.lock ./
+COPY app/package.json app/yarn.lock ./app/
+COPY backend/package.json backend/yarn.lock ./backend/
+# backend/yarn.lock is currently out of sync with backend/package.json (pre-existing in
+# this checkout, unrelated to server-mode packaging) so that one install runs without
+# --frozen-lockfile; root and app installs stay pinned to their lockfiles.
+RUN corepack enable && \
+    yarn install --frozen-lockfile --network-timeout 600000 && \
+    (cd app && yarn install --frozen-lockfile --network-timeout 600000) && \
+    (cd backend && yarn install --network-timeout 600000)
+
+COPY . .
+RUN yarn build:server
+
+FROM node:22-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/app/build ./app/build
+COPY --from=builder /app/app/index.html ./app/index.html
+
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
+EXPOSE 3000
+CMD ["node", "dist/src/server.js"]

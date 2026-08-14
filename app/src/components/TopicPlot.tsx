@@ -16,6 +16,7 @@ interface Props {
   interpolation?: PlotCurveTypes
   range?: [number?, number?]
   color?: string
+  centerNow?: boolean
 }
 
 function filterUsingTimeRange(startTime: number | undefined, data: Array<q.Message>) {
@@ -73,6 +74,7 @@ function TopicPlot(props: Props) {
   return (
     <PlotHistory
       timeRangeStart={startOffset}
+      centerNow={props.centerNow}
       color={props.color}
       range={props.range}
       interpolation={props.interpolation}

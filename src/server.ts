@@ -17,6 +17,7 @@ import { Rpc } from '../events/EventSystem/Rpc'
 import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogRequest'
 import { getAppVersion, writeToFile, readFromFile, addMqttConnectionEvent } from '../events'
 import { RpcEvents } from '../events/EventsV2'
+import { getFlowMonitorBaseline, getFlowMonitorHistory } from './sqlReporting'
 
 const PORT = process.env.PORT || 3000
 const CREDENTIALS_PATH = path.join(process.cwd(), 'data', 'credentials.json')
@@ -349,6 +350,28 @@ async function startServer() {
       return packageJson.version
     } catch (e) {
       return '0.0.0'
+    }
+  })
+
+  // SQL reporting — direct SQL Server read for flow monitor baselines
+  // (site-ID crosswalk + latest comparison_results row), separate from the
+  // MQTT-based live values. See src/sqlReporting.ts. Same auth as every
+  // other RPC on this socket — no new unauthenticated surface.
+  backendRpc.on(RpcEvents.getFlowMonitorBaseline, async ({ siteNumber }) => {
+    try {
+      return await getFlowMonitorBaseline(siteNumber)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorBaseline failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, channels: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorHistory, async ({ siteNumber, hours }) => {
+    try {
+      return await getFlowMonitorHistory(siteNumber, hours)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorHistory failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, points: [] }
     }
   })
 

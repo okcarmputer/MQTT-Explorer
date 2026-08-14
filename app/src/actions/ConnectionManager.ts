@@ -83,7 +83,17 @@ async function openCertificate(): Promise<CertificateParameters> {
     throw rejectReasons.noCertificateSelected
   }
 
-  const data = await rendererRpc.call(readFromFile, { filePath: selectedFile })
+  const raw = await rendererRpc.call(readFromFile, { filePath: selectedFile })
+  // Electron's IPC does not preserve Node Buffer instances across the
+  // renderer/main boundary — a Buffer sent from the main process can arrive
+  // here as a plain Uint8Array (whose toString() ignores the 'base64' arg
+  // and returns comma-separated byte values) or as a JSON-ified
+  // {type:'Buffer', data:[...]} shape. Re-wrap explicitly so
+  // .toString('base64') always operates on a real Buffer.
+  const data: Buffer = Buffer.isBuffer(raw)
+    ? raw
+    : Buffer.from((raw as any)?.data ?? (raw as ArrayLike<number>))
+
   if (data.length > 16_384 || data.length < 64) {
     throw rejectReasons.certificateSizeDoesNotMatch
   }

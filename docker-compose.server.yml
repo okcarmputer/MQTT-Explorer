@@ -1,0 +1,45 @@
+# Deploys the dashboard in server (browser) mode on a Linux box, joining the
+# same broker network the anomaly-detection stack already creates
+# (rewa_mqtt_net, see Anomaly_Detection/mqtt-broker/Docker-compose.yml).
+# Deploy that stack first so the network exists, then:
+#   docker compose -f docker-compose.server.yml up -d --build
+services:
+  mqtt-explorer-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: mqtt-explorer-dashboard
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      MQTT_AUTO_CONNECT_HOST: mosquitto
+      MQTT_AUTO_CONNECT_PORT: '1883'
+      # Auth is handled by MQTT_EXPLORER_USERNAME/PASSWORD below, or set
+      # MQTT_EXPLORER_SKIP_AUTH=true if this sits behind nginx/oauth2-proxy.
+      MQTT_EXPLORER_USERNAME: ${MQTT_EXPLORER_USERNAME:-}
+      MQTT_EXPLORER_PASSWORD: ${MQTT_EXPLORER_PASSWORD:-}
+      MQTT_EXPLORER_SKIP_AUTH: ${MQTT_EXPLORER_SKIP_AUTH:-false}
+      # Optional — direct SQL Server reporting (flow monitor baselines).
+      # Leave SQL_SERVER unset to run MQTT-only, exactly as before; use a
+      # read-only login, this dashboard never writes to SQL Server.
+      SQL_SERVER: ${SQL_SERVER:-}
+      SQL_DATABASE: ${SQL_DATABASE:-flow_monitor}
+      SQL_USER: ${SQL_USER:-}
+      SQL_PASSWORD: ${SQL_PASSWORD:-}
+      SQL_PORT: ${SQL_PORT:-1433}
+      SQL_ENCRYPT: ${SQL_ENCRYPT:-true}
+      SQL_TRUST_SERVER_CERT: ${SQL_TRUST_SERVER_CERT:-false}
+    volumes:
+      - mqtt-explorer-data:/app/data
+    networks:
+      - rewa_mqtt_net
+
+volumes:
+  mqtt-explorer-data:
+
+networks:
+  # Created by the anomaly-detection stack's mqtt-broker compose file — not
+  # owned here, just joined.
+  rewa_mqtt_net:
+    external: true

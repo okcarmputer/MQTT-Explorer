@@ -2,6 +2,7 @@ import CssBaseline from '@mui/material/CssBaseline'
 import React from 'react'
 import { bindActionCreators } from 'redux'
 import { connect } from 'react-redux'
+import { HashRouter } from 'react-router-dom'
 import { Theme } from '@mui/material/styles'
 import { withStyles } from '@mui/styles'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -18,6 +19,7 @@ import { globalActions, settingsActions } from '../actions'
 
 const Settings = React.lazy(() => import('./SettingsDrawer/Settings'))
 const ContentView = React.lazy(() => import('./Layout/ContentView'))
+const DashboardTabs = React.lazy(() => import('../dashboard/DashboardTabs'))
 
 interface Props {
   connectionId: string
@@ -75,6 +77,7 @@ class App extends React.PureComponent<Props, {}> {
     return (
       <div className={centerContent}>
         <CssBaseline />
+        <HashRouter>
         <ErrorBoundary>
           <ConfirmationDialog confirmationRequests={this.props.confirmationRequests} />
           <AboutDialog
@@ -91,10 +94,17 @@ class App extends React.PureComponent<Props, {}> {
             </div>
             <div className={settingsVisible ? contentShift : content}>
               <React.Suspense fallback={<div />}>
-                <ContentView
+                <DashboardTabs
                   heightProperty={heightProperty}
                   connectionId={this.props.connectionId}
                   paneDefaults={paneDefaults}
+                  explorer={
+                    <ContentView
+                      heightProperty={heightProperty}
+                      connectionId={this.props.connectionId}
+                      paneDefaults={paneDefaults}
+                    />
+                  }
                 />
               </React.Suspense>
             </div>
@@ -102,6 +112,7 @@ class App extends React.PureComponent<Props, {}> {
           <UpdateNotifier />
           <ConnectionSetup />
         </ErrorBoundary>
+        </HashRouter>
       </div>
     )
   }

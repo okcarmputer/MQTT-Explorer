@@ -73,3 +73,5 @@ publish-test*.js
 verify-mobile-tree.js
 interactive-mobile-test.js
 long-wait-test.js
+
+certs/

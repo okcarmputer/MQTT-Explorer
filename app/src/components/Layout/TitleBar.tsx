@@ -105,7 +105,7 @@ class TitleBar extends React.PureComponent<Props, {}> {
             <Menu />
           </IconButton>
           <Typography className={classes.title} variant="h6" color="inherit">
-            MQTT Explorer
+            Flow Data MQTT Dashboard
           </Typography>
           <SearchBar />
           <PauseButton />

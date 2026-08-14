@@ -37,6 +37,12 @@ export const RpcEvents = {
   saveDialog: { topic: 'saveDialog' } as RpcEvent<SaveDialogOptionsV2, SaveDialogReturnValueV2>,
   uploadCertificate: { topic: 'uploadCertificate' } as RpcEvent<CertificateUploadRequest, CertificateUploadResponse>,
   llmChat: { topic: 'llm/chat' } as RpcEvent<LlmChatRequest, LlmChatResponse>,
+  getFlowMonitorBaseline: {
+    topic: 'sql/flow-monitor-baseline',
+  } as RpcEvent<FlowMonitorBaselineRequest, FlowMonitorBaselineResponse>,
+  getFlowMonitorHistory: {
+    topic: 'sql/flow-monitor-history',
+  } as RpcEvent<FlowMonitorHistoryRequest, FlowMonitorHistoryResponse>,
 }
 
 // Type definitions
@@ -74,6 +80,59 @@ export interface LlmChatRequest {
 
 export interface LlmChatResponse {
   response: string
+}
+
+// SQL reporting RPC types — direct SQL Server reads for report-style data
+// (baselines, historical comparisons) that doesn't need MQTT's live-update
+// semantics. See src/sqlReporting.ts for the query itself.
+export interface FlowMonitorBaselineRequest {
+  siteNumber: string
+}
+
+export interface FlowMonitorChannelBaseline {
+  channelId: '7' | '11' | '15'
+  observedValue: number | null
+  baselineMean: number | null
+  baselineStdDev: number | null
+  alarmLevel: 0 | 1 | 2 | 3 | null
+  comparedAt: string | null
+}
+
+export interface FlowMonitorBaselineResponse {
+  configured: boolean // false if SQL_* env vars aren't set — caller should treat as "unavailable," not an error
+  siteNumber: string
+  channels: FlowMonitorChannelBaseline[]
+}
+
+// History for the per-site drill-down trend chart — same comparison_results
+// source as the baseline RPC above, but every row in the lookback window
+// instead of just the latest, so the chart can plot observed values against
+// the CHA baseline mean/SD bounds over time.
+export interface FlowMonitorHistoryRequest {
+  siteNumber: string
+  hours: number
+}
+
+export interface FlowMonitorHistoryPoint {
+  comparedAt: string
+  flow: number | null
+  flowMean: number | null
+  flowStdDev: number | null
+  flowAlarm: 0 | 1 | 2 | 3 | null
+  velocity: number | null
+  velocityMean: number | null
+  velocityStdDev: number | null
+  velocityAlarm: 0 | 1 | 2 | 3 | null
+  level: number | null
+  levelMean: number | null
+  levelStdDev: number | null
+  levelAlarm: 0 | 1 | 2 | 3 | null
+}
+
+export interface FlowMonitorHistoryResponse {
+  configured: boolean
+  siteNumber: string
+  points: FlowMonitorHistoryPoint[]
 }
 
 // Dialog types (browser-compatible versions)

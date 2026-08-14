@@ -11,6 +11,12 @@ export function useCustomXDomain(props: Props): [number, number] | undefined {
     const lastDataDate = lastDataPoint ? lastDataPoint.x : Date.now()
 
     if (props.timeRangeStart) {
+      if (props.centerNow) {
+        // "Now" sits at the horizontal midpoint — history fills the left half,
+        // the right half is deliberately blank (there's no future data yet).
+        const halfRange = props.timeRangeStart / 2
+        return [Date.now() - halfRange, Date.now() + halfRange]
+      }
       // Custom time range mode
       return [Date.now() - props.timeRangeStart, lastDataDate]
     }

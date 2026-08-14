@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="minimum-scale=1, initial-scale=1, width=device-width, shrink-to-fit=no" />
-  <title>MQTT Explorer</title>
+  <title>Flow Data MQTT Dashboard</title>
   <script src="./bugtracking.bundle.js"></script>
 
   <style>
@@ -20,6 +20,7 @@
 
     /* Mobile-specific responsive styles */
     @media (max-width: 768px) {
+
       /* Increase touch target sizes for better mobile UX */
       button {
         min-height: 44px !important;
@@ -43,13 +44,18 @@
       }
 
       /* Prevent text selection on mobile taps - applied to interactive elements */
-      button, a, [role="button"], [data-testid] {
+      button,
+      a,
+      [role="button"],
+      [data-testid] {
         -webkit-tap-highlight-color: transparent;
         -webkit-touch-callout: none;
       }
 
       /* Improve scrolling performance for scrollable containers */
-      [style*="overflow"], .MuiDrawer-root, [data-testid="tree-container"] {
+      [style*="overflow"],
+      .MuiDrawer-root,
+      [data-testid="tree-container"] {
         -webkit-overflow-scrolling: touch;
       }
 
