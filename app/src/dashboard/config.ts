@@ -40,6 +40,15 @@ export const dashboardConfig = {
     // .../site_info, .../ports/{port_id}, .../status — all retained. {site_number} is the
     // wildcard segment enumerated by useTopicChildren.
     topicPrefix: 'flow_monitors',
+    // flow_monitors/data_channel_types is a reference/lookup topic (the
+    // catalog of every possible Hach channel id -> name/units/kind), not a
+    // site — it sits directly under the same "flow_monitors" prefix as
+    // every site number, so anywhere sites get enumerated must exclude it
+    // by name (see useTopicChildren's excludeKeys param) or it gets treated
+    // as a 182nd "site". Surfaced separately via the Flow Monitors tab's
+    // "Data Channel Types" button (DataChannelTypes.tsx) instead.
+    metadataChildren: ['data_channel_types'],
+    dataChannelTypesPath: 'flow_monitors/data_channel_types',
     // No flow_monitors/{site}/{channel}/anomaly topic is published yet — anomaly severity is
     // currently computed by detector.py and written to SQL Server only (per the anomaly-detection
     // repo's rewrite: Flow_Monitor_Anomalies, one row per channel per cycle, no site-level

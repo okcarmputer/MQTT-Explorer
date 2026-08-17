@@ -16,7 +16,17 @@ export interface ChildTopic {
  * enumerate devices under a wildcard-style prefix (flow_monitors/+) without
  * a purpose-built MQTT wildcard subscription.
  */
-export function useTopicChildren(tree: q.Tree<any> | undefined, prefixPath: string): ChildTopic[] {
+export function useTopicChildren(
+  tree: q.Tree<any> | undefined,
+  prefixPath: string,
+  // Immediate children that aren't actually devices — e.g. flow_monitors'
+  // data_channel_types is a reference/lookup topic sitting directly under
+  // the same prefix as site numbers, not a site itself. Excluded here
+  // (rather than filtered per-caller) so every consumer of this prefix
+  // (the device grid, MqttStoreSync, the anomaly feed) agrees on what
+  // counts as a real device without duplicating the exclusion list.
+  excludeKeys?: string[]
+): ChildTopic[] {
   const parentNode = usePollingToFetchTreeNode(tree, prefixPath)
   const [children, setChildren] = useState<ChildTopic[]>([])
 
@@ -27,11 +37,13 @@ export function useTopicChildren(tree: q.Tree<any> | undefined, prefixPath: stri
     }
 
     function refresh() {
-      const next = parentNode!.edgeArray.map(edge => ({
-        key: edge.name,
-        path: edge.target.path(),
-        node: edge.target,
-      }))
+      const next = parentNode!.edgeArray
+        .filter(edge => !excludeKeys?.includes(edge.name))
+        .map(edge => ({
+          key: edge.name,
+          path: edge.target.path(),
+          node: edge.target,
+        }))
       setChildren(next)
     }
 
@@ -43,7 +55,7 @@ export function useTopicChildren(tree: q.Tree<any> | undefined, prefixPath: stri
       clearInterval(interval)
       parentNode.onEdgesChange.unsubscribe(refresh)
     }
-  }, [parentNode])
+  }, [parentNode, excludeKeys?.join(',')])
 
   return children
 }

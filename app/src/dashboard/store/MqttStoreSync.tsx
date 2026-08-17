@@ -31,7 +31,7 @@ function toSnapshotMap(devices: ChildTopic[], severities: Record<string, Severit
  * store instead of calling useTopicChildren/useDeviceSeverities itself.
  */
 function MqttStoreSync({ tree, connected, health, host }: Props) {
-  const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix)
+  const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix, dashboardConfig.flowMonitors.metadataChildren)
   const pumpDevices = useTopicChildren(tree, dashboardConfig.pumpStations.topicPrefix)
   const flowSeverities = useDeviceSeverities(flowDevices)
   const pumpSeverities = useDeviceSeverities(pumpDevices)

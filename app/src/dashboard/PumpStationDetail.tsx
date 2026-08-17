@@ -170,6 +170,28 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         Serial: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
       </h2>
 
+      <h3>Analog Inputs</h3>
+      {analogInputs.length === 0 ? (
+        <div style={{ opacity: 0.7, marginBottom: 20 }}>No named, non-channel analog inputs configured.</div>
+      ) : (
+        <div className="cmom-trend-grid" style={{ marginBottom: 20 }}>
+          {analogInputs.map(a => {
+            const scaledValueNode = a.node.edges['ScaledValue']?.target
+            return (
+              scaledValueNode && (
+                <TrendPanel
+                  key={a.key}
+                  title={`AnalogInputs/${a.key} (${a.json.Description})`}
+                  node={scaledValueNode}
+                  dotPath="value"
+                  unit={a.json.ScaledUnits}
+                />
+              )
+            )
+          })}
+        </div>
+      )}
+
       <h3>Wet Well</h3>
       <div className="cmom-card-row" style={{ marginBottom: 20 }}>
         {!levelInput ? (
@@ -249,28 +271,6 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           {digitalInputs.map(d => (
             <DigitalInputRow key={d.key} label={`DigitalInputs/${d.key} (${d.json.Description})`} node={d.node} />
           ))}
-        </div>
-      )}
-
-      <h3>Analog Inputs</h3>
-      {analogInputs.length === 0 ? (
-        <div style={{ opacity: 0.7, marginBottom: 20 }}>No named, non-channel analog inputs configured.</div>
-      ) : (
-        <div className="cmom-trend-grid" style={{ marginBottom: 12 }}>
-          {analogInputs.map(a => {
-            const scaledValueNode = a.node.edges['ScaledValue']?.target
-            return (
-              scaledValueNode && (
-                <TrendPanel
-                  key={a.key}
-                  title={`AnalogInputs/${a.key} (${a.json.Description})`}
-                  node={scaledValueNode}
-                  dotPath="value"
-                  unit={a.json.ScaledUnits}
-                />
-              )
-            )
-          })}
         </div>
       )}
     </div>

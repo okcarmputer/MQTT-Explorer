@@ -219,11 +219,25 @@ function ContentView(props: Props) {
     )
   }
 
-  // Desktop view with split panes
+  // Desktop view with split panes. cmom-explorer-panel gives Explorer the
+  // same rounded/shadowed panel chrome every other tab's cards have, WITHOUT
+  // the cmom-dashboard class itself — an earlier pass added that class here
+  // too, which also pulled in .cmom-dashboard's typography cascade
+  // (monospace font, different base size/line-height) onto the Tree
+  // underneath. The tree's own node highlight/selection boxes size
+  // themselves to their text using the app's original font metrics; once
+  // that font changed out from under them, the highlight box and the text
+  // it's supposed to contain fell out of sync, spilling text outside its
+  // own box. cmom-explorer-panel below is defined standalone (its own
+  // literal colors, not .cmom-dashboard's custom properties) specifically
+  // so this chrome can apply without dragging that cascade along with it.
   return (
-    <div className={props.paneDefaults} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+    <div
+      className={props.paneDefaults}
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', padding: 16, boxSizing: 'border-box', gap: 12 }}
+    >
       <ExplorerSettings />
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="cmom-explorer-panel" style={{ flex: 1, minHeight: 0 }}>
         <span>
           <ReactSplitPane
             step={20}

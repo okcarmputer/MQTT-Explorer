@@ -117,9 +117,15 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
     }
   }, [levelChannel?.node?.message, tick])
 
-  // Pipe diameter: prefer the real, MQTT-published dimension; fall back to
-  // config.ts's flat gaugeMaxInches assumption only if this site hasn't
-  // published one (or the SQL table hasn't either) — see PipeGauge.
+  // Pipe diameter: the real, physical dimension — MQTT ports topic first,
+  // then SQL, then config.ts's flat assumption. Deriving this from the
+  // Level chart's own auto-scaled Y max (tried in an earlier pass) turned
+  // out to degenerate badly with sparse history: with only 1-2 readings so
+  // far, the computed max is essentially just the current reading itself,
+  // making the pipe always render ~100% full regardless of the real level.
+  // Real dimension data doesn't have that problem. The Level chart's own
+  // axis is instead fixed to [0, this value] below, so the pipe and the
+  // graph still agree on what "full" means — just sourced correctly.
   const levelChannelConfig = flowChannels.find(c => c.key === 'level')
   const sqlDiameter = portInfo?.ports.find(p => p.dimensionValue !== null)
   const pipeDiameterValue = diameter?.value ?? sqlDiameter?.dimensionValue ?? levelChannelConfig?.gaugeMaxInches
@@ -145,22 +151,6 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
       <h2 style={{ marginTop: 0 }}>
         Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
       </h2>
-
-      {attributeRows.length > 0 && (
-        <div className="cmom-card" style={{ padding: 'var(--cmom-space-3, 12px)', marginBottom: 'var(--cmom-space-4, 16px)' }}>
-          <div className="cmom-label" style={{ marginBottom: 'var(--cmom-space-2, 8px)' }}>
-            Site Attributes
-          </div>
-          <div className="cmom-device-card-details">
-            {attributeRows.map(row => (
-              <React.Fragment key={row.label}>
-                <span className="cmom-label">{row.label}:</span>
-                <span>{row.value}</span>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
 
       <h3>Pipe</h3>
       {pipeDiameterValue === undefined || levelReadingValue === undefined || Number.isNaN(levelReadingValue) ? (
@@ -203,6 +193,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
                 dotPath="Value"
                 unit={c.unit}
                 sqlBaselineText={sqlBaselineText}
+                range={c.key === 'level' && pipeDiameterValue !== undefined ? [0, pipeDiameterValue] : undefined}
               />
             )
           })}
@@ -257,6 +248,22 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
               points={history?.points ?? []}
               channel={{ value: 'velocity', mean: 'velocityMean', stdDev: 'velocityStdDev', alarm: 'velocityAlarm' }}
             />
+          </div>
+        </div>
+      )}
+
+      {attributeRows.length > 0 && (
+        <div className="cmom-card" style={{ padding: 'var(--cmom-space-3, 12px)', marginTop: 'var(--cmom-space-4, 16px)' }}>
+          <div className="cmom-label" style={{ marginBottom: 'var(--cmom-space-2, 8px)' }}>
+            Site Attributes
+          </div>
+          <div className="cmom-device-card-details">
+            {attributeRows.map(row => (
+              <React.Fragment key={row.label}>
+                <span className="cmom-label">{row.label}:</span>
+                <span>{row.value}</span>
+              </React.Fragment>
+            ))}
           </div>
         </div>
       )}

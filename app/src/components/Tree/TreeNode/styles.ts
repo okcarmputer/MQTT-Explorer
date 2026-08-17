@@ -1,4 +1,3 @@
-import { blueGrey } from '@mui/material/colors'
 import { Theme } from '@mui/material/styles'
 
 export const styles = (theme: Theme) => {
@@ -38,14 +37,21 @@ export const styles = (theme: Theme) => {
     subnodes: {
       marginLeft: isMobile ? theme.spacing(2) : theme.spacing(1.5), // Increased indentation on mobile
     },
+    // Selection/hover used to be a colored background box behind the node's
+    // text (border-radius + background-color on an inline-block). That box
+    // was visibly sizing itself wrong for its own text content in the
+    // dashboard's panel layout — text spilling out past its background —
+    // and wasn't worth chasing further, per explicit direction to just drop
+    // the box and keep selection/hover as plain text styling instead
+    // (bold + accent color), which can't ever visually mismatch its text.
     selected: {
-      backgroundColor: `${theme.palette.mode === 'light' ? blueGrey[300] : theme.palette.primary.main} !important`,
+      fontWeight: 700 as const,
+      color: `${theme.palette.mode === 'light' ? theme.palette.primary.dark : theme.palette.primary.light} !important`,
     },
     hover: {},
     title: {
-      borderRadius: '4px',
       lineHeight: isMobile ? '1.3em' : '1em',
-      display: 'inline-block' as const,
+      display: 'inline' as const,
       whiteSpace: 'nowrap' as const,
       minHeight: isMobile ? '40px' : '14px', // 44px touch target on mobile (WCAG AA minimum)
       height: 'auto' as const,
@@ -54,7 +60,7 @@ export const styles = (theme: Theme) => {
       fontSize: isMobile ? '16px' : 'inherit', // Prevent iOS zoom on focus
       cursor: 'pointer' as const,
       '&:hover': {
-        backgroundColor: theme.palette.mode === 'light' ? blueGrey[100] : theme.palette.primary.light,
+        textDecoration: 'underline' as const,
       },
       // Better touch feedback on mobile
       [theme.breakpoints.down('md')]: {

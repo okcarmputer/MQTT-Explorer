@@ -118,7 +118,7 @@ function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceTyp
  * fleet-wide severity counts from the same source of truth).
  */
 export function useAnomalyFeed(tree?: q.Tree<any>) {
-  const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix)
+  const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix, dashboardConfig.flowMonitors.metadataChildren)
   const pumpDevices = useTopicChildren(tree, dashboardConfig.pumpStations.topicPrefix)
   const [events, setEvents] = React.useState<AnomalyEvent[]>([])
 

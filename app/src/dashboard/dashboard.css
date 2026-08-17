@@ -1,8 +1,11 @@
 /*
  * Shared design tokens for the CMOM dashboard tabs (Overview, Flow Monitors,
- * Pump Stations, Anomalies, and their drill-down/detail views). Explorer
- * (the original MQTT-Explorer tree tab) is intentionally untouched — these
- * variables are scoped under .cmom-dashboard so they never leak into it.
+ * Pump Stations, Anomalies, and their drill-down/detail views), scoped
+ * under .cmom-dashboard so they don't leak into unrelated parts of the app.
+ * Explorer (the original MQTT-Explorer tree tab) now opts into this scope
+ * too (see ContentView.tsx) so it reads as part of the same app — only the
+ * outer panel chrome around it is styled; the tree/chart/sidebar internals
+ * themselves are untouched.
  *
  * Visual language ported from the reference Qt/QML "MQTT Device Dashboard"
  * (dark terminal aesthetic: near-black surfaces, monospace labels, green
@@ -279,6 +282,25 @@
 .cmom-dashboard button {
   font-family: var(--cmom-font);
   font-size: 13px;
+}
+
+/*
+ * Explorer's outer panel chrome (ContentView.tsx) — same rounded/shadowed
+ * widget look every other tab's cards use, wrapped around the tree/chart/
+ * sidebar split-pane area without touching its own internal layout.
+ * Deliberately standalone (not `.cmom-dashboard .cmom-explorer-panel`, and
+ * literal color values instead of var(--cmom-*)): Explorer intentionally
+ * does NOT carry the .cmom-dashboard class (see ContentView.tsx) since that
+ * class's typography cascade broke the tree's own node highlight sizing
+ * once. This still needs to render outside that scope, so it can't rely on
+ * custom properties that are only defined inside it.
+ */
+.cmom-explorer-panel {
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: #151a21;
+  overflow: hidden;
 }
 
 /*

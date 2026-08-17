@@ -13,6 +13,13 @@ interface Props {
   // Pulled via direct SQL query (see useSqlFlowBaseline), shown alongside the
   // MQTT-published baseline below — distinct source, so labeled separately.
   sqlBaselineText?: string
+  // Fixes the Y axis to this range instead of auto-scaling to the visible
+  // data's own min/max — used for the Level channel so its axis always
+  // matches the pipe's real diameter (e.g. [0, 10]), rather than shrinking
+  // to whatever narrow band of readings happens to be in view (which looks
+  // wrong with sparse history: 1-2 points auto-scale to a near-arbitrary
+  // range). Omit for channels that should keep auto-scaling (Velocity/Flow).
+  range?: [number?, number?]
 }
 
 function currentValueText(node: q.TreeNode<any>, dotPath?: string): string | undefined {
@@ -40,7 +47,7 @@ function currentValueText(node: q.TreeNode<any>, dotPath?: string): string | und
  * readout (from a sibling `.../baseline` topic, if published). Sized to a
  * quarter of the row rather than the full width.
  */
-export default function TrendPanel({ title, node, dotPath, unit, sqlBaselineText }: Props) {
+export default function TrendPanel({ title, node, dotPath, unit, sqlBaselineText, range }: Props) {
   const [timeRange, setTimeRange] = React.useState(DEFAULT_TIME_RANGE)
   const [, setTick] = React.useState(0)
 
@@ -88,6 +95,7 @@ export default function TrendPanel({ title, node, dotPath, unit, sqlBaselineText
           centerNow
           axisColor="#8b949e"
           gridColor="#2a3139"
+          range={range}
         />
       </div>
       <div className="cmom-value" style={{ marginTop: 4 }}>
