@@ -6,6 +6,7 @@ import {
   FlowMonitorHistoryPoint,
   FlowMonitorPortInfoResponse,
   FlowMonitorPortDimension,
+  PumpStationWetWellInfoResponse,
 } from '../events/EventsV2'
 
 /**
@@ -219,4 +220,44 @@ export async function getFlowMonitorPortInfo(siteNumber: string): Promise<FlowMo
   }))
 
   return { configured: true, siteNumber, ports }
+}
+
+// Working name only — this table doesn't exist yet (per the user: "sql
+// table i will make soon"). Mirrors dbo.hach_port_info's shape/dimension
+// columns so the same FlowMonitorPortDimension-style display code (see
+// WetWellGauge) can read it once it's created. Rename this query (and the
+// column names below) to match whatever the real table ends up being
+// called — until then, the missing-table SQL error is caught by the
+// caller (src/electron.ts / src/server.ts) the same way every other SQL
+// query's failure already degrades to "unavailable" rather than crashing.
+const WET_WELL_QUERY = `
+SELECT TOP 1
+    Shape, DimensionName, DimensionValue, DimensionUnits
+FROM dbo.pump_station_wet_well
+WHERE Serial = @serial;
+`
+
+export async function getPumpStationWetWellInfo(serial: string): Promise<PumpStationWetWellInfoResponse> {
+  if (!isSqlReportingConfigured()) {
+    return { configured: false, serial, wetWell: null }
+  }
+
+  const connectedPool = await getPool()
+  const result = await connectedPool.request().input('serial', sql.VarChar(50), serial).query(WET_WELL_QUERY)
+
+  const row = result.recordset[0]
+  if (!row) {
+    return { configured: true, serial, wetWell: null }
+  }
+
+  return {
+    configured: true,
+    serial,
+    wetWell: {
+      shape: row.Shape,
+      dimensionName: row.DimensionName,
+      dimensionValue: row.DimensionValue,
+      dimensionUnits: row.DimensionUnits,
+    },
+  }
 }

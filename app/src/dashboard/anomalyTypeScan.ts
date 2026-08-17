@@ -1,5 +1,6 @@
 import * as q from '../../../backend/src/Model'
 import { Severity, digitalInputSeverity, severityFromPayload, severityOrder } from './config'
+import { readGroupFields } from './pumpStationLeaf'
 
 export interface AnomalyTypeEntry {
   // Path relative to the device node, e.g. "FLOW" (flow monitor channel) or
@@ -21,6 +22,17 @@ const EXCLUDED_SEGMENTS = new Set(['site_info', 'ports', 'status', ANOMALY_CHILD
  * retained `.../anomaly` child. Each one is its own entry with its own
  * severity; there is no device-level rollup.
  */
+// A pump station DigitalInput{n}/AnalogInput{n} group node never carries a
+// message itself (logger.py publishes each of its fields — Alarm, Description,
+// ScaledValue, ... — as its own leaf topic, see pumpStationLeaf.ts) but its
+// presence as a group is recognizable by which leaves it has. Without this
+// check, walk() below would recurse past the group into its individual leaf
+// fields and treat each one (Alarm, AlarmDescription, Description, ...) as
+// its own unrelated "anomaly type", instead of the input as a whole.
+function looksLikePumpStationReadingGroup(node: q.TreeNode<any>): boolean {
+  return Boolean(node.edges['Alarm'] || node.edges['ScaledValue'])
+}
+
 export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: number = 2): AnomalyTypeEntry[] {
   const out: AnomalyTypeEntry[] = []
 
@@ -33,9 +45,11 @@ export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: numbe
       const child = edge.target
       const path = [...pathSegments, edge.name]
       const anomalyEdge = child.edges[ANOMALY_CHILD_NAME]
+      const isReading = anomalyEdge || child.hasMessage() || looksLikePumpStationReadingGroup(child)
 
-      if (anomalyEdge || child.hasMessage()) {
+      if (isReading) {
         out.push({ label: path.join('/'), node: child, anomalyNode: anomalyEdge?.target })
+        continue
       }
 
       if (depthRemaining > 0 && child.edgeArray.length > 0) {
@@ -48,14 +62,12 @@ export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: numbe
   return out
 }
 
+// Reads a reading's own fields regardless of whether it's a flow monitor
+// leaf (one JSON blob directly on the node) or a pump station input group
+// (fields split across leaf children, see pumpStationLeaf.ts) — readGroupFields
+// degrades to {} for a childless leaf, so this is safe for both shapes.
 function readJson(node: q.TreeNode<any>): any {
-  const payload = node.message?.payload?.toUnicodeString()
-  if (!payload) return {}
-  try {
-    return JSON.parse(payload)
-  } catch {
-    return {}
-  }
+  return readGroupFields(node)
 }
 
 /**

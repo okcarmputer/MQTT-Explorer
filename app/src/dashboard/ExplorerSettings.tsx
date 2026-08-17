@@ -40,7 +40,7 @@ function ExplorerSettings({ actions, autoExpandLimit, highlightTopicUpdates, sel
   }
 
   return (
-    <div className="cmom-dashboard">
+    <div className="cmom-dashboard cmom-explorer-settings-wrapper">
       <details className="cmom-card cmom-explorer-settings">
         <summary>Explorer Settings</summary>
         <div className="cmom-explorer-settings-grid">

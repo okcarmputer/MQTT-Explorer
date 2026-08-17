@@ -22,7 +22,7 @@ import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogReques
 import { getAppVersion, writeToFile, readFromFile } from '../events'
 import { backendRpc, backendEvents } from '../events/EventSystem/EventBus'
 import { RpcEvents } from '../events/EventsV2'
-import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo } from './sqlReporting'
+import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo, getPumpStationWetWellInfo } from './sqlReporting'
 
 registerCrashReporter()
 
@@ -104,6 +104,15 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('[SQL] getFlowMonitorPortInfo failed:', error instanceof Error ? error.message : error)
       return { configured: true, siteNumber, ports: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getPumpStationWetWellInfo, async ({ serial }) => {
+    try {
+      return await getPumpStationWetWellInfo(serial)
+    } catch (error) {
+      console.error('[SQL] getPumpStationWetWellInfo failed:', error instanceof Error ? error.message : error)
+      return { configured: true, serial, wetWell: null }
     }
   })
 })

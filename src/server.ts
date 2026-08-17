@@ -17,7 +17,7 @@ import { Rpc } from '../events/EventSystem/Rpc'
 import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogRequest'
 import { getAppVersion, writeToFile, readFromFile, addMqttConnectionEvent } from '../events'
 import { RpcEvents } from '../events/EventsV2'
-import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo } from './sqlReporting'
+import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo, getPumpStationWetWellInfo } from './sqlReporting'
 
 const PORT = process.env.PORT || 3000
 const CREDENTIALS_PATH = path.join(process.cwd(), 'data', 'credentials.json')
@@ -381,6 +381,15 @@ async function startServer() {
     } catch (error) {
       console.error('[SQL] getFlowMonitorPortInfo failed:', error instanceof Error ? error.message : error)
       return { configured: true, siteNumber, ports: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getPumpStationWetWellInfo, async ({ serial }) => {
+    try {
+      return await getPumpStationWetWellInfo(serial)
+    } catch (error) {
+      console.error('[SQL] getPumpStationWetWellInfo failed:', error instanceof Error ? error.message : error)
+      return { configured: true, serial, wetWell: null }
     }
   })
 

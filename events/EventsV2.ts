@@ -46,6 +46,9 @@ export const RpcEvents = {
   getFlowMonitorPortInfo: {
     topic: 'sql/flow-monitor-port-info',
   } as RpcEvent<FlowMonitorPortInfoRequest, FlowMonitorPortInfoResponse>,
+  getPumpStationWetWellInfo: {
+    topic: 'sql/pump-station-wet-well-info',
+  } as RpcEvent<PumpStationWetWellInfoRequest, PumpStationWetWellInfoResponse>,
 }
 
 // Type definitions
@@ -162,6 +165,30 @@ export interface FlowMonitorPortInfoResponse {
   configured: boolean
   siteNumber: string
   ports: FlowMonitorPortDimension[]
+}
+
+// Wet well physical dimensions, mirroring FlowMonitorPortDimension's shape/
+// dimension convention — reads from a table the user is creating separately
+// (working name: dbo.pump_station_wet_well), keyed by pump station serial
+// rather than a flow monitor site number. Until that table exists,
+// getPumpStationWetWellInfo degrades to configured:true with an empty list
+// (see src/sqlReporting.ts), same "unavailable, not an error" contract as
+// every other SQL-backed read in this app.
+export interface PumpStationWetWellInfoRequest {
+  serial: string
+}
+
+export interface PumpStationWetWellDimension {
+  shape: string | null
+  dimensionName: string | null
+  dimensionValue: number | null
+  dimensionUnits: string | null
+}
+
+export interface PumpStationWetWellInfoResponse {
+  configured: boolean
+  serial: string
+  wetWell: PumpStationWetWellDimension | null
 }
 
 // Dialog types (browser-compatible versions)

@@ -3,22 +3,16 @@ import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
 import ValuePanel from './ValuePanel'
 import DigitalInputRow from './DigitalInputRow'
-import { useTopicMessage } from './useTopicChildren'
+import { readGroupFields } from './pumpStationLeaf'
+import { usePumpStationSummary } from './usePumpStationSummary'
+import { useSqlWetWellInfo } from './useSqlWetWellInfo'
+import WetWellGauge from './widgets/WetWellGauge'
+import { RuntimeClock } from './widgets/Readings'
 
 interface Props {
   deviceKey: string
   deviceNode: q.TreeNode<any>
   onBack: () => void
-}
-
-function readJson(node: q.TreeNode<any> | undefined): any {
-  const payload = node?.message?.payload?.toUnicodeString()
-  if (!payload) return {}
-  try {
-    return JSON.parse(payload)
-  } catch {
-    return {}
-  }
 }
 
 function StatusField({ label, value }: { label: string; value: React.ReactNode }) {
@@ -98,26 +92,35 @@ function tryParseTimestamp(key: string, value: unknown): Date | undefined {
 export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Props) {
   const [, setTick] = React.useState(0)
 
+  // logger.py publishes every UnitStatus/DigitalInput/AnalogInput field as
+  // its own leaf topic (see pumpStationLeaf.ts) rather than one JSON blob
+  // per group, so there's no single group-level message to subscribe to —
+  // poll instead, same as usePumpStationSummary's board-level summary.
   React.useEffect(() => {
     const rerender = () => setTick(t => t + 1)
     deviceNode.onEdgesChange.subscribe(rerender)
-    return () => deviceNode.onEdgesChange.unsubscribe(rerender)
+    const interval = setInterval(rerender, 2000)
+    return () => {
+      deviceNode.onEdgesChange.unsubscribe(rerender)
+      clearInterval(interval)
+    }
   }, [deviceNode])
 
   const unitStatusNode = deviceNode.edges['UnitStatus']?.target
-  useTopicMessage(unitStatusNode)
-  const unitStatus = readJson(unitStatusNode)
+  const unitStatus = readGroupFields(unitStatusNode)
   // Render every attribute the UnitStatus payload actually carries, rather
   // than a hardcoded subset — the payload's field list isn't documented
-  // anywhere in this repo, so this adapts to whatever ps_mqtt.py publishes.
+  // anywhere in this repo, so this adapts to whatever logger.py publishes.
   const unitStatusEntries = Object.entries(unitStatus).filter(([key]) => key !== undefined)
 
   const acPowerNode = deviceNode.edges['ACPower']?.target
+  const acPowerVoltsNode = acPowerNode?.edges['Volts']?.target
   const batteryNode = deviceNode.edges['BatteryState']?.target
+  const batteryVoltsNode = batteryNode?.edges['Volts']?.target
 
   const digitalGroup = deviceNode.edges['DigitalInputs']?.target
   const digitalInputs = (digitalGroup?.edgeArray ?? [])
-    .map(edge => ({ key: edge.name, node: edge.target, json: readJson(edge.target) }))
+    .map(edge => ({ key: edge.name, node: edge.target, json: readGroupFields(edge.target) }))
     .filter(d => {
       const desc = (d.json.Description || '').trim().toLowerCase()
       return desc !== '' && desc !== 'spare'
@@ -126,7 +129,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
 
   const analogGroup = deviceNode.edges['AnalogInputs']?.target
   const analogInputs = (analogGroup?.edgeArray ?? [])
-    .map(edge => ({ key: edge.name, node: edge.target, json: readJson(edge.target) }))
+    .map(edge => ({ key: edge.name, node: edge.target, json: readGroupFields(edge.target) }))
     .filter(a => {
       const desc = (a.json.Description || '').trim().toLowerCase()
       return desc !== '' && !desc.includes('channel')
@@ -134,6 +137,17 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
     .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
 
   const temperatureNode = deviceNode.edges['Temperature']?.target
+  const temperatureValueNode = temperatureNode?.edges['Temperature']?.target
+
+  // Pump runtimes (for the clock widgets) and a "level"-described analog
+  // input (for the wet well gauge) both come from the same non-empty-field
+  // scan usePumpStationSummary already does for the rest of this page.
+  const summary = usePumpStationSummary(deviceNode)
+  const wetWellInfo = useSqlWetWellInfo(deviceKey)
+  const wetWell = wetWellInfo?.wetWell
+  const levelInput = summary.analogInputs.find(a => a.label.toLowerCase().includes('level'))
+  const levelValue = levelInput ? Number(levelInput.value) : undefined
+  const depthValue = wetWell?.dimensionValue ?? undefined
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', overflow: 'auto' }}>
@@ -156,11 +170,58 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         Serial: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
       </h2>
 
+      <h3>Wet Well</h3>
+      <div className="cmom-card-row" style={{ marginBottom: 20 }}>
+        {!levelInput ? (
+          <div style={{ opacity: 0.7 }}>No analog input labeled "Level" found for this station.</div>
+        ) : depthValue === undefined || depthValue === null ? (
+          <div style={{ opacity: 0.7 }}>
+            Wet well depth isn&apos;t configured in SQL yet — showing the raw level reading only.
+            {levelValue !== undefined && !Number.isNaN(levelValue) && levelInput.node.edges['ScaledValue']?.target && (
+              <div style={{ marginTop: 8 }}>
+                <ValuePanel
+                  title={levelInput.label}
+                  node={levelInput.node.edges['ScaledValue']!.target}
+                  valuePath="value"
+                  unit={levelInput.unit}
+                />
+              </div>
+            )}
+          </div>
+        ) : levelValue === undefined || Number.isNaN(levelValue) ? (
+          <div style={{ opacity: 0.7 }}>No reading yet from {levelInput.label}.</div>
+        ) : (
+          <WetWellGauge
+            title={levelInput.label}
+            depthValue={depthValue}
+            depthUnit={wetWell?.dimensionUnits || 'ft'}
+            levelValue={levelValue}
+            levelUnit={levelInput.unit}
+          />
+        )}
+      </div>
+
+      <h3>Pump Runtimes</h3>
+      {summary.pumpRuntimes.length === 0 ? (
+        <div style={{ opacity: 0.7, marginBottom: 20 }}>No pump runtime data reported yet.</div>
+      ) : (
+        <div className="cmom-card-row" style={{ marginBottom: 20 }}>
+          {summary.pumpRuntimes.map(r => (
+            <div key={r.key} className="cmom-card" style={{ padding: '10px 12px' }}>
+              <div className="cmom-label" style={{ marginBottom: 6 }}>
+                {r.label}
+              </div>
+              <RuntimeClock label={`${r.label} today`} minutes={`${r.today} today / ${r.yesterday} yest.`} starts={r.hourlyStart} />
+            </div>
+          ))}
+        </div>
+      )}
+
       <h3>Unit Status</h3>
       {unitStatusEntries.length === 0 ? (
         <div style={{ opacity: 0.7, marginBottom: 20 }}>No UnitStatus payload seen yet.</div>
       ) : (
-        <div className="cmom-card-grid" style={{ '--cmom-grid-min': '120px', marginBottom: 20 } as React.CSSProperties}>
+        <div className="cmom-card-row" style={{ marginBottom: 20 }}>
           {unitStatusEntries.map(([key, value]) => {
             const asDate = tryParseTimestamp(key, value)
             const display = asDate
@@ -174,10 +235,10 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
       )}
 
       <h3>Power &amp; Temperature</h3>
-      <div className="cmom-card-grid" style={{ '--cmom-grid-min': '150px', marginBottom: 20 } as React.CSSProperties}>
-        {acPowerNode && <ValuePanel title="AC Power" node={acPowerNode} valuePath="Volts" unit="V" />}
-        {batteryNode && <ValuePanel title="Battery State" node={batteryNode} valuePath="Volts" unit="V" />}
-        {temperatureNode && <ValuePanel title="Temperature" node={temperatureNode} valuePath="Temperature" />}
+      <div className="cmom-card-row" style={{ marginBottom: 20 }}>
+        {acPowerVoltsNode && <ValuePanel title="AC Power" node={acPowerVoltsNode} valuePath="value" unit="V" />}
+        {batteryVoltsNode && <ValuePanel title="Battery State" node={batteryVoltsNode} valuePath="value" unit="V" />}
+        {temperatureValueNode && <ValuePanel title="Temperature" node={temperatureValueNode} valuePath="value" />}
       </div>
 
       <h3>Digital Inputs</h3>
@@ -196,15 +257,20 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         <div style={{ opacity: 0.7, marginBottom: 20 }}>No named, non-channel analog inputs configured.</div>
       ) : (
         <div className="cmom-trend-grid" style={{ marginBottom: 12 }}>
-          {analogInputs.map(a => (
-            <TrendPanel
-              key={a.key}
-              title={`AnalogInputs/${a.key} (${a.json.Description})`}
-              node={a.node}
-              dotPath="ScaledValue"
-              unit={a.json.ScaledUnits}
-            />
-          ))}
+          {analogInputs.map(a => {
+            const scaledValueNode = a.node.edges['ScaledValue']?.target
+            return (
+              scaledValueNode && (
+                <TrendPanel
+                  key={a.key}
+                  title={`AnalogInputs/${a.key} (${a.json.Description})`}
+                  node={scaledValueNode}
+                  dotPath="value"
+                  unit={a.json.ScaledUnits}
+                />
+              )
+            )
+          })}
         </div>
       )}
     </div>

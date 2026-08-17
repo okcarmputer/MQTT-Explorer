@@ -147,6 +147,46 @@ export default memo((props: Props) => {
     }
   }, [isDragging, plotWidth])
 
+  // Scroll-wheel zoom, centered on the cursor's position in time — the time
+  // range buttons (TimeRangeToggle) only offer fixed presets; this is the
+  // actual "zoom in and adjust the timeline" interaction. Needs a native
+  // (non-React) wheel listener with {passive:false}: React makes onWheel
+  // passive by default, which silently no-ops preventDefault() and lets the
+  // page/panel scroll underneath the chart instead of zooming it.
+  React.useEffect(() => {
+    const el = chartContainerRef.current
+    if (!el) {
+      return
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      const domain = panDomain ?? autoXDomain
+      if (!domain) {
+        return
+      }
+      event.preventDefault()
+
+      const rect = el.getBoundingClientRect()
+      const cursorX = event.clientX - rect.left - CHART_MARGIN.left
+      const fraction = Math.max(0, Math.min(1, cursorX / plotWidth))
+      const [start, end] = domain
+      const cursorTime = start + fraction * (end - start)
+
+      // deltaY > 0 (scroll down) zooms out, < 0 (scroll up) zooms in.
+      const zoomFactor = event.deltaY > 0 ? 1.15 : 1 / 1.15
+      const newStart = cursorTime - (cursorTime - start) * zoomFactor
+      const newEnd = cursorTime + (end - cursorTime) * zoomFactor
+      // Don't let a window collapse to (or invert past) zero width.
+      if (newEnd - newStart < 1000) {
+        return
+      }
+      setPanDomain([newStart, newEnd])
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [panDomain, autoXDomain, plotWidth])
+
   const { data } = props
   const hasData = data.length > 0
   const dummyDomain: [number, number] = [-1, 1]
@@ -168,7 +208,7 @@ export default memo((props: Props) => {
           ref={chartContainerRef}
           onMouseDown={e => onPanStart(e.clientX)}
           onDoubleClick={() => setPanDomain(undefined)}
-          title="Drag to pan, double-click to reset"
+          title="Drag to pan, scroll to zoom, double-click to reset"
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
           <XYChart

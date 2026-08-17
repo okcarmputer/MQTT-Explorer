@@ -1,9 +1,10 @@
 import * as React from 'react'
 import { connect } from 'react-redux'
+import { Link } from 'react-router-dom'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { Severity, severityColors, severityOrder } from './config'
-import { DeviceType, useAnomalyFeed } from './useAnomalyFeed'
+import { DeviceType, DEVICE_TYPE_ROUTE_PREFIX, useAnomalyFeed } from './useAnomalyFeed'
 import DashboardGrid, { GridPanelDef } from './DashboardGrid'
 
 interface Props {
@@ -74,7 +75,11 @@ function FeedPanel({ filtered }: { filtered: ReturnType<typeof useAnomalyFeed>['
           <tr key={e.id} style={{ borderBottom: '1px solid var(--cmom-border, rgba(128,128,128,0.15))' }}>
             <td style={{ padding: '6px 8px', opacity: 0.7 }}>{new Date(e.time).toLocaleTimeString()}</td>
             <td style={{ padding: '6px 8px' }}>{e.deviceType}</td>
-            <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{e.deviceKey}</td>
+            <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>
+              <Link to={`${DEVICE_TYPE_ROUTE_PREFIX[e.deviceType]}/${e.deviceKey}`} style={{ color: 'var(--cmom-accent)' }}>
+                {e.deviceKey}
+              </Link>
+            </td>
             <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{e.anomalyType}</td>
             <td style={{ padding: '6px 8px' }}>
               <SeverityDot severity={e.previousSeverity} />

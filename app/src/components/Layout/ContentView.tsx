@@ -11,7 +11,6 @@ import { Sidebar } from '../Sidebar'
 import MobileTabs from './MobileTabs'
 import PublishTab from '../Sidebar/PublishTab'
 import ExplorerSettings from '../../dashboard/ExplorerSettings'
-import SearchBar from './SearchBar'
 
 // Type cast to any to work around React 18 compatibility issues with react-split-pane 0.1.x
 const ReactSplitPane = ReactSplitPaneImport as any
@@ -45,6 +44,30 @@ function ContentView(props: Props) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  // react-split-pane (the desktop layout below) only sizes its panes
+  // correctly if a `resize` event fires *after* it's actually mounted with
+  // real layout dimensions — it doesn't re-measure on its own when a
+  // previously-hidden/zero-size ancestor becomes visible (this is the same
+  // issue documented elsewhere in this codebase: DashboardTabs dispatches
+  // one synthetic resize on tab switch for the same reason). A single
+  // dispatch at delay 0 is timing-sensitive — if this component's own
+  // layout (e.g. ExplorerSettings' height) hasn't settled yet, the pane
+  // still ends up effectively invisible at normal window widths, only
+  // "recovering" once an actual window resize happens to fire (which is
+  // why shrinking the window narrow enough to hit the mobile breakpoint,
+  // a completely different CSS-only layout path, "fixes" it). Firing
+  // several staggered retries here, local to this component rather than
+  // depending on a cross-component signal's exact timing, is far more
+  // reliable than a single best-effort dispatch.
+  React.useEffect(() => {
+    if (isMobile) {
+      return
+    }
+    const dispatch = () => window.dispatchEvent(new Event('resize'))
+    const timers = [0, 50, 200, 500].map(delay => window.setTimeout(dispatch, delay))
+    return () => timers.forEach(t => window.clearTimeout(t))
+  }, [isMobile])
 
   const { height: resizeHeight, ref: heightRef } = useResizeDetector()
   const { width: resizeWidth, ref: widthRef } = useResizeDetector()
@@ -89,39 +112,46 @@ function ContentView(props: Props) {
     }
   }, [props.chartPanelItems])
 
+  // Expose tab switching functions for other components to call. Only
+  // meaningful in the mobile layout, but the hook itself must run
+  // unconditionally on every render (not nested inside `if (isMobile)`
+  // below) -- React requires the same hooks in the same order on every
+  // render of a component, and isMobile can flip mid-session (window
+  // resize, or the dashboard's synthetic resize dispatch on tab switch),
+  // which previously threw "Rendered more hooks than during the previous
+  // render" and crashed/remounted this whole component (wiping the tree).
+  React.useEffect(() => {
+    if (!isMobile || typeof window === 'undefined') {
+      return
+    }
+    ;(window as any).switchToDetailsTab = () => setMobileTab(1)
+    ;(window as any).switchToTopicsTab = () => setMobileTab(0)
+    ;(window as any).switchToPublishTab = () => setMobileTab(2)
+    ;(window as any).switchToChartsTab = () => setMobileTab(3)
+    return () => {
+      delete (window as any).switchToDetailsTab
+      delete (window as any).switchToTopicsTab
+      delete (window as any).switchToPublishTab
+      delete (window as any).switchToChartsTab
+    }
+  }, [isMobile])
+
+  // Scroll to selected topic when returning to tree tab (mobile only)
+  React.useEffect(() => {
+    if (!isMobile || mobileTab !== 0) {
+      return
+    }
+    // Delay to ensure DOM is rendered
+    setTimeout(() => {
+      const selectedNode = document.querySelector('.tree .selected')
+      if (selectedNode) {
+        selectedNode.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 100)
+  }, [isMobile, mobileTab])
+
   // Mobile view with tab switcher
   if (isMobile) {
-    // Expose tab switching functions for other components to call
-    React.useEffect(() => {
-      if (typeof window !== 'undefined') {
-        ;(window as any).switchToDetailsTab = () =>
-          (setMobileTab(1)(window as any).switchToTopicsTab = () => setMobileTab(0))
-        ;(window as any).switchToPublishTab = () => setMobileTab(2)
-        ;(window as any).switchToChartsTab = () => setMobileTab(3)
-      }
-      return () => {
-        if (typeof window !== 'undefined') {
-          delete (window as any).switchToDetailsTab
-          delete (window as any).switchToTopicsTab
-          delete (window as any).switchToPublishTab
-          delete (window as any).switchToChartsTab
-        }
-      }
-    }, [])
-
-    // Scroll to selected topic when returning to tree tab
-    React.useEffect(() => {
-      if (mobileTab === 0) {
-        // Delay to ensure DOM is rendered
-        setTimeout(() => {
-          const selectedNode = document.querySelector('.tree .selected')
-          if (selectedNode) {
-            selectedNode.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }, 100)
-      }
-    }, [mobileTab])
-
     const mobileContainerStyle: React.CSSProperties = {
       display: 'flex',
       flexDirection: 'column',
@@ -191,10 +221,7 @@ function ContentView(props: Props) {
 
   // Desktop view with split panes
   return (
-    <div className={props.paneDefaults} style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="cmom-dashboard cmom-explorer-search-bar">
-        <SearchBar />
-      </div>
+    <div className={props.paneDefaults} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       <ExplorerSettings />
       <div style={{ flex: 1, minHeight: 0 }}>
         <span>

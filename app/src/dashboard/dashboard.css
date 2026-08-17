@@ -20,8 +20,8 @@
   --cmom-space-4: 16px;
   --cmom-space-5: 24px;
 
-  --cmom-radius-sm: 4px;
-  --cmom-radius-md: 8px;
+  --cmom-radius-sm: 6px;
+  --cmom-radius-md: 12px;
 
   /* Dark terminal palette, ported 1:1 from the reference dashboard */
   --cmom-bg: #0a0e14;
@@ -31,7 +31,10 @@
   --cmom-border-strong: #3a424c;
   --cmom-panel-bg: #151a21;
   --cmom-card-bg: #151a21;
-  --cmom-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+  /* Widget look: shadow does the separating, not a hard border — border is
+     a near-invisible hairline just to keep edges crisp on very flat colors. */
+  --cmom-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.22);
+  --cmom-card-shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 26px rgba(0, 0, 0, 0.32);
   --cmom-text-primary: #e6edf3;
   --cmom-text-muted: #8b949e;
   --cmom-text-tertiary: #6e7681;
@@ -80,9 +83,12 @@
 
 .cmom-dashboard .cmom-card {
   background: var(--cmom-surface);
-  border: 1px solid var(--cmom-border);
+  /* Hairline, not a defined border — the card reads as a widget lifted off
+     the page by its shadow, not a boxed-in rectangle. */
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--cmom-radius-md);
   box-shadow: var(--cmom-card-shadow);
+  padding: var(--cmom-space-4);
   /* Never let a long value/label push the card wider than its grid cell —
      text wraps and shrinks with the card instead of spilling out of it. */
   min-width: 0;
@@ -90,11 +96,13 @@
   overflow-wrap: anywhere;
   word-break: break-word;
   box-sizing: border-box;
-  transition: border-color 120ms ease;
+  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
 }
 
 .cmom-dashboard .cmom-card:hover {
-  border-color: var(--cmom-border-strong);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow: var(--cmom-card-shadow-hover);
+  transform: translateY(-1px);
 }
 
 .cmom-dashboard .cmom-card * {
@@ -112,6 +120,64 @@
   grid-template-columns: repeat(auto-fill, minmax(min(var(--cmom-grid-min, 140px), 100%), 1fr));
   gap: var(--cmom-space-2);
   align-items: stretch;
+}
+
+/*
+ * Content-sized card row: unlike .cmom-card-grid (equal-width grid columns
+ * that stretch every card to fill its cell, which forces short values to
+ * wrap across multiple lines inside an oversized card), each card here
+ * only takes the width its own content actually needs, and rows wrap
+ * normally. Used for Unit Status / Power & Temperature / Pump Runtimes /
+ * the pipe & wet well gauges — anywhere a card's value is one short line
+ * that shouldn't be stretched or wrapped.
+ */
+.cmom-dashboard .cmom-card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cmom-space-2);
+  align-items: stretch;
+}
+
+.cmom-dashboard .cmom-card-row > .cmom-card {
+  /* flex-shrink: 0 — never squeezed narrower than its content (that's what
+     was forcing values to wrap in the old equal-width grid); rows wrap
+     instead of cards shrinking. width: max-content (not auto) forces real
+     intrinsic content-based sizing — plain `auto` left the card's measured
+     width ambiguous inside a flex-wrap row combined with container-type:
+     inline-size below, which was collapsing to near-zero and forcing
+     .cmom-value's text to wrap one character per line despite nowrap. */
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+  /* This card doesn't need container-query-based responsive sizing (that's
+     for cards that actually get squeezed by a grid track) — disabling it
+     removes the other half of that same collapse bug. */
+  container-type: normal;
+}
+
+.cmom-dashboard .cmom-card-row .cmom-value,
+.cmom-dashboard .cmom-card-row .cmom-label {
+  white-space: nowrap;
+  /* Overrides .cmom-value's overflow-wrap: anywhere, which still forces a
+     character-by-character break as a last resort even under nowrap once
+     a container is narrower than the text — exactly what was happening
+     here. Content-sized cards should never need that safety net. */
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.cmom-dashboard .cmom-card-row .cmom-value {
+  font-size: 16px;
+}
+
+/* The pipe/wet-well gauge is a front-facing visual, not a stat tile — its
+   own resizable square, not a panel spanning the full row width. */
+.cmom-dashboard .cmom-gauge-card {
+  resize: both;
+  overflow: auto;
+  min-width: 140px;
+  min-height: 180px;
+  width: 200px;
 }
 
 /* Value text (big numbers/readings) scales down with the card instead of
@@ -439,6 +505,13 @@
   resize: vertical;
   overflow: auto;
   min-height: 190px;
+  border-top: 2px solid var(--cmom-status-severity, var(--cmom-border));
+  transition: box-shadow 160ms ease, transform 120ms ease;
+}
+
+.cmom-device-card:hover {
+  box-shadow: 0 0 0 1px var(--cmom-border-strong), 0 6px 18px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
 }
 
 .cmom-device-card-header {
@@ -529,38 +602,37 @@
 /* Stat tile row (Overview), mirroring DashboardView.qml's 6-up stat grid. */
 .cmom-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
-  gap: var(--cmom-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: var(--cmom-space-4);
 }
 
 .cmom-stat-tile {
-  padding: var(--cmom-space-4) var(--cmom-space-3);
-  text-align: center;
+  padding: var(--cmom-space-4) var(--cmom-space-4) var(--cmom-space-3);
+  text-align: left;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .cmom-stat-tile-value {
   font-family: var(--cmom-font-mono);
-  font-size: 30px;
-  font-weight: 700;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .cmom-stat-tile-subtitle {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--cmom-text-muted);
 }
 
-/*
- * Search box, relocated from the removed TitleBar banner into the Explorer
- * tab itself — SearchBar.tsx keeps its own MUI styling (white text over a
- * translucent overlay), which already reads fine on any dark background.
- */
-.cmom-explorer-search-bar {
-  padding: var(--cmom-space-3) var(--cmom-space-4) 0;
-  background: var(--cmom-bg);
+/* A widget with something actively wrong (e.g. CRITICAL alarm count > 0)
+   gets a visible glow instead of just a colored number, so it's the thing
+   the eye lands on first in the row. */
+.cmom-stat-tile--emphasis {
+  border-color: rgba(244, 67, 54, 0.35);
+  box-shadow: var(--cmom-card-shadow), 0 0 0 1px rgba(244, 67, 54, 0.25);
 }
 
 /*
@@ -568,6 +640,21 @@
  * old slide-out Drawer. Closed by default; MUI child controls (Select,
  * Switch, InputLabel) keep their own theme styling, this only wraps them.
  */
+
+/* ExplorerSettings sits inline as a flex child at the top of the Explorer
+   tab's flex column (see ContentView.tsx), not as its own full-page pane —
+   so unlike every other .cmom-dashboard usage (DashboardTabs' tab panes,
+   Sidebar, TopBar), it must NOT inherit .cmom-dashboard's height:100%.
+   Those other usages each pair the base class with their own explicit
+   sizing rule the same way this one does; without it here, this wrapper
+   claims the entire Explorer tab height and squeezes the tree/split-pane
+   below it down to 0px — which is exactly "the Explorer tab only shows the
+   Explorer Settings button". */
+.cmom-explorer-settings-wrapper {
+  height: auto;
+  flex: 0 0 auto;
+}
+
 .cmom-explorer-settings {
   margin: var(--cmom-space-3) var(--cmom-space-4) 0;
   padding: var(--cmom-space-3);

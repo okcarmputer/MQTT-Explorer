@@ -25,6 +25,15 @@ export const severityColors: Record<Severity, string> = {
   CRITICAL: '#f44336',
 }
 
+// How long since a device's last message before Overview's "Not Reporting"
+// widget counts it. Retained MQTT semantics mean the absence of a *newer*
+// message is ambiguous — it could mean the device is actually offline, or
+// just as likely that nothing upstream re-published within this window
+// (e.g. a slow poll cycle) while the broker still happily serves the old
+// retained value. This is a display threshold for that widget only, not a
+// claim about device health — see the widget's own label/copy.
+export const staleDeviceThresholdMinutes = 30
+
 export const dashboardConfig = {
   flowMonitors: {
     // Confirmed against fm_mqtt.py: publishes to flow_monitors/{site_number}/{channel_type},
@@ -38,13 +47,16 @@ export const dashboardConfig = {
     // a retained anomaly leaf per channel, that leaf simply won't be found and severity reads OK.
   },
   pumpStations: {
-    // Confirmed against ps_mqtt.py: publishes to pump_stations/{serial}/UnitStatus,
-    // .../AnalogInputs/AnalogInput{n}, .../DigitalInputs/DigitalInput{n}, etc — all retained.
-    // opcua/12299/{serial}... is only the OPC-UA node-ID namespace ps_mqtt.py reads FROM, not
-    // an MQTT topic anything publishes to — the two-scheme mismatch noted in earlier docs
-    // doesn't apply to this broker's actual data.
-    topicPrefix: 'pump_stations',
-    // Same as flow monitors: no pump_stations/{serial}/{input}/anomaly topic is published yet
+    // Confirmed against opc-logger's logger.py: build_topic() publishes to
+    // pump_stations/opcua/12299/{serial}/{node_path} (e.g. .../UnitStatus/SerialNumber,
+    // .../DigitalInputs/DigitalInput{n}/Alarm, .../AnalogInputs/AnalogInput{n}/ScaledValue) — all
+    // retained. {serial} (the NODE_TREE root, e.g. "14MIS14227") is the wildcard segment
+    // enumerated by useTopicChildren; "opcua"/"12299" are fixed literal path segments (the OPC-UA
+    // browse root logger.py reads from), not a device grouping, so they belong in the prefix, not
+    // as a serial. NODE_TREE's leaf names (UnitStatus, DigitalInputs, AnalogInputs, ACPower,
+    // BatteryState, Temperature, ...) are exactly what PumpStationDetail.tsx reads.
+    topicPrefix: 'pump_stations/opcua/12299',
+    // Same as flow monitors: no .../{serial}/{input}/anomaly topic is published yet
     // (anomaly-detection repo now writes to OPC_Anomalies, per-input, no station-level aggregate).
   },
 }
@@ -58,6 +70,13 @@ export interface FlowChannelConfig {
   key: 'level' | 'velocity' | 'flow'
   label: string
   unit: string
+  // 0-100% denominator for LevelGauge's cylinder fill — only set on the
+  // channel(s) that get a gauge instead of a plain number. No pipe/wet-well
+  // depth is published per site (that lives in dbo.hach_port_info's
+  // dimension, surfaced separately as a site attribute), so this is a
+  // flat, editable-here assumption rather than a per-site true depth —
+  // adjust if it reads wrong for your sites.
+  gaugeMaxInches?: number
 }
 
 // Single source for which Hach channels are measurements worth surfacing as
@@ -65,7 +84,7 @@ export interface FlowChannelConfig {
 // FlowMonitorDetail's trend panels all import this — no second hard-coded
 // copy of channel ids/units).
 export const flowChannels: FlowChannelConfig[] = [
-  { id: '7', key: 'level', label: 'Level', unit: 'inches' },
+  { id: '7', key: 'level', label: 'Level', unit: 'inches', gaugeMaxInches: 60 },
   { id: '11', key: 'velocity', label: 'Velocity', unit: 'fps' },
   { id: '15', key: 'flow', label: 'Flow', unit: 'gpm' },
 ]

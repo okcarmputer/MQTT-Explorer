@@ -5,8 +5,10 @@ import FlowTrendChart from './FlowTrendChart'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
 import { useSqlFlowHistory } from './useSqlFlowHistory'
 import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
+import { formatFlowPortInfo, extractDiameter, readPortsForNode } from './useFlowPortInfo'
 import { flowChannels } from './config'
 import { humanizeKey } from './useFlowSiteInfo'
+import PipeGauge from './widgets/PipeGauge'
 
 const HISTORY_RANGE_OPTIONS = [
   { label: '24h', hours: 24 },
@@ -21,16 +23,28 @@ interface Props {
 }
 
 export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Props) {
-  const [, setTick] = React.useState(0)
+  const [tick, setTick] = React.useState(0)
 
   React.useEffect(() => {
     const rerender = () => setTick(t => t + 1)
     const siteInfoNode = deviceNode.edges['site_info']?.target
+    const portsGroup = deviceNode.edges['ports']?.target
+    const levelChannelConfig = flowChannels.find(c => c.key === 'level')
+    const levelNode = levelChannelConfig ? deviceNode.edges[levelChannelConfig.id]?.target : undefined
     deviceNode.onEdgesChange.subscribe(rerender)
     siteInfoNode?.onMessage.subscribe(rerender)
+    portsGroup?.onEdgesChange.subscribe(rerender)
+    levelNode?.onMessage.subscribe(rerender)
+    const portUnsubs = (portsGroup?.edgeArray ?? []).map(edge => {
+      edge.target.onMessage.subscribe(rerender)
+      return () => edge.target.onMessage.unsubscribe(rerender)
+    })
     return () => {
       deviceNode.onEdgesChange.unsubscribe(rerender)
       siteInfoNode?.onMessage.unsubscribe(rerender)
+      portsGroup?.onEdgesChange.unsubscribe(rerender)
+      levelNode?.onMessage.unsubscribe(rerender)
+      portUnsubs.forEach(unsub => unsub())
     }
   }, [deviceNode])
 
@@ -70,11 +84,46 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
   const [historyHours, setHistoryHours] = React.useState(HISTORY_RANGE_OPTIONS[0].hours)
   const history = useSqlFlowHistory(deviceKey, historyHours)
 
-  // Pipe/port shape + dimension (dbo.hach_port_info) — also direct SQL,
-  // also degrades to unavailable rather than erroring (see useSqlFlowBaseline).
+  // Pipe/port shape + dimension, straight from the live MQTT
+  // flow_monitors/{site}/ports/{port_id} topic fm_mqtt.py already publishes
+  // (see useFlowPortInfo) — this is the primary source, since it's always
+  // on and doesn't depend on SQL being configured for this process.
+  const mqttPorts = React.useMemo(() => readPortsForNode(deviceNode), [deviceNode, tick])
+  const mqttPortAttributes = React.useMemo(() => formatFlowPortInfo(mqttPorts), [mqttPorts])
+  const diameter = React.useMemo(() => extractDiameter(mqttPorts), [mqttPorts])
+
+  // Same dimension, also fetched via direct SQL (dbo.hach_port_info) as a
+  // fallback for whatever the MQTT ports topic doesn't carry — degrades to
+  // unavailable rather than erroring (see useSqlFlowBaseline). Kept
+  // alongside the MQTT source rather than replacing it, in case the two
+  // ever diverge (e.g. SQL has a dimension MQTT hasn't been given yet).
   const portInfo = useSqlFlowPortInfo(deviceKey)
-  const portAttributes = React.useMemo(() => formatPortAttributes(portInfo?.ports ?? []), [portInfo])
-  const attributeRows = [...Object.entries(siteInfo).map(([k, v]) => ({ label: humanizeKey(k), value: v })), ...portAttributes]
+  const sqlPortAttributes = React.useMemo(() => formatPortAttributes(portInfo?.ports ?? []), [portInfo])
+  const attributeRows = [
+    ...Object.entries(siteInfo).map(([k, v]) => ({ label: humanizeKey(k), value: v })),
+    ...mqttPortAttributes,
+    ...sqlPortAttributes,
+  ]
+
+  const levelChannel = channels.find(c => c.key === 'level')
+  const levelReadingValue = React.useMemo(() => {
+    const payload = levelChannel?.node?.message?.payload?.toUnicodeString()
+    if (!payload) return undefined
+    try {
+      const json = JSON.parse(payload)
+      return json.Value !== undefined ? Number(json.Value) : undefined
+    } catch {
+      return undefined
+    }
+  }, [levelChannel?.node?.message, tick])
+
+  // Pipe diameter: prefer the real, MQTT-published dimension; fall back to
+  // config.ts's flat gaugeMaxInches assumption only if this site hasn't
+  // published one (or the SQL table hasn't either) — see PipeGauge.
+  const levelChannelConfig = flowChannels.find(c => c.key === 'level')
+  const sqlDiameter = portInfo?.ports.find(p => p.dimensionValue !== null)
+  const pipeDiameterValue = diameter?.value ?? sqlDiameter?.dimensionValue ?? levelChannelConfig?.gaugeMaxInches
+  const pipeDiameterUnit = diameter?.unit ?? sqlDiameter?.dimensionUnits ?? 'in'
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', overflow: 'auto' }}>
@@ -110,6 +159,25 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
               </React.Fragment>
             ))}
           </div>
+        </div>
+      )}
+
+      <h3>Pipe</h3>
+      {pipeDiameterValue === undefined || levelReadingValue === undefined || Number.isNaN(levelReadingValue) ? (
+        <div style={{ opacity: 0.7, marginBottom: 20 }}>
+          {pipeDiameterValue === undefined
+            ? 'No pipe diameter published (ports topic) or configured in SQL for this site yet.'
+            : 'No Level reading yet.'}
+        </div>
+      ) : (
+        <div className="cmom-card-row" style={{ marginBottom: 20 }}>
+          <PipeGauge
+            title="Level"
+            diameterValue={pipeDiameterValue}
+            diameterUnit={pipeDiameterUnit}
+            levelValue={levelReadingValue}
+            levelUnit={levelChannelConfig?.unit || 'in'}
+          />
         </div>
       )}
 

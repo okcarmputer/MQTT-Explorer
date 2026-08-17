@@ -17,11 +17,14 @@ interface Props {
 }
 
 // Flow Monitors and Pump Stations are routed (their rows link to
-// /flow-monitors/:siteId and /pump-stations/:serial); the other tabs are
-// not, so the nav rail stays in sync with the URL only for those two.
+// /flow-monitors/:siteId and /pump-stations/:serial); Anomalies has no
+// drill-down route but is still addressable at /anomalies (so Overview's
+// "Recent Anomalies" widget can link straight to the full feed); Overview
+// itself stays local-only, since "/" already means it.
 function routedTabForPath(pathname: string): number | null {
   if (pathname.startsWith('/flow-monitors')) return 1
   if (pathname.startsWith('/pump-stations')) return 2
+  if (pathname.startsWith('/anomalies')) return 3
   return null
 }
 
@@ -45,6 +48,8 @@ export default function DashboardTabs(props: Props) {
       navigate('/flow-monitors')
     } else if (index === 2) {
       navigate('/pump-stations')
+    } else if (index === 3) {
+      navigate('/anomalies')
     } else {
       setLocalTab(index)
       if (routedTab !== null) {
@@ -59,19 +64,26 @@ export default function DashboardTabs(props: Props) {
     width: '100%',
   })
 
-  // Explorer (ContentView's react-split-pane layout) is always mounted,
-  // just display:none until this tab is active — react-split-pane measures
-  // its container's size to lay out its panes, and a display:none ancestor
-  // reports zero size. If that measurement happened while hidden (e.g. on
-  // first mount, since Overview is the default tab), the panes can end up
-  // sized wrong even after switching to Explorer, since react-split-pane
-  // doesn't re-measure on visibility change — only on window resize. Firing
-  // a synthetic resize event when this tab becomes active forces that
-  // re-measurement.
+  // Explorer (ContentView's react-split-pane layout) is meant to stay
+  // mounted once visited, so the tree/MQTT view underneath survives nav
+  // switches — but `props.explorer` is a ready-made element, and React
+  // mounts an element's fiber the moment it appears in the tree regardless
+  // of CSS display:none on an ancestor. Since Overview is the default tab,
+  // that meant ContentView (and react-split-pane inside it) mounted
+  // immediately at app startup while genuinely hidden (0×0), and
+  // react-split-pane only measures its container once at mount — it never
+  // re-measures on its own later, no matter how many synthetic `resize`
+  // events get dispatched afterward (several increasingly aggressive
+  // attempts at exactly that all failed to fix this reliably). The actual
+  // fix is to not mount it while hidden in the first place: defer
+  // rendering `props.explorer` at all until Explorer has been selected at
+  // least once, so its first mount happens already visible and measures
+  // correctly from the start. Once true, this never goes back to false, so
+  // switching away and back still doesn't remount it.
+  const [hasVisitedExplorer, setHasVisitedExplorer] = React.useState(tab === 4)
   React.useEffect(() => {
     if (tab === 4) {
-      const id = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
-      return () => window.clearTimeout(id)
+      setHasVisitedExplorer(true)
     }
   }, [tab])
 
@@ -109,8 +121,8 @@ export default function DashboardTabs(props: Props) {
               <Anomalies />
             </div>
           </div>
-          {/* Explorer stays mounted at all times so the tree/MQTT view underneath is never remounted by nav switches. */}
-          <div style={{ ...paneStyle(4), position: 'absolute', inset: 0 }}>{props.explorer}</div>
+          {/* Not rendered at all until first visited (see hasVisitedExplorer above); stays mounted forever after that so the tree/MQTT view underneath is never remounted by nav switches. */}
+          <div style={{ ...paneStyle(4), position: 'absolute', inset: 0 }}>{hasVisitedExplorer ? props.explorer : null}</div>
         </div>
       </div>
     </div>

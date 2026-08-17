@@ -1,15 +1,14 @@
 import * as React from 'react'
 import { connect } from 'react-redux'
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { dashboardConfig } from './config'
 import { useTopicChildren, ChildTopic } from './useTopicChildren'
-import FlowMonitorBoard from './FlowMonitorBoard'
+import SimpleDeviceGrid from './SimpleDeviceGrid'
+import SimpleDeviceCard from './SimpleDeviceCard'
 import FlowMonitorDetail from './FlowMonitorDetail'
 import { useMqttStore } from './store/mqttStore'
-import { useFlowMeasurements } from './useFlowMeasurements'
-import { useFlowSiteInfo } from './useFlowSiteInfo'
 
 interface Props {
   tree?: q.Tree<any>
@@ -40,37 +39,51 @@ function FlowMonitorDetailRoute({ devices }: { devices: ChildTopic[] }) {
   )
 }
 
+/**
+ * Flow Monitors: a filterable card grid — each card links to that site's
+ * own full device dashboard (FlowMonitorDetail, with the pipe-fill gauge,
+ * trends, and attributes) rather than showing device state inline here.
+ */
 function FlowMonitors({ tree }: Props) {
   // The detail route needs the actual tree node (for TopicPlot history etc),
-  // so it still reads through useTopicChildren. The board only needs the
-  // current-value/severity snapshot plus live measurements/site info.
+  // so it still reads through useTopicChildren. The grid takes
+  // severity/lastUpdate straight from the shared store.
   const devices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix)
   const flowMonitors = useMqttStore(s => s.flowMonitors)
-  // Level/Velocity/Flow readings + each site's actual last-reading time,
-  // read straight from the channel nodes (see useFlowMeasurements) — the
-  // store only carries severity + the site node's own lastUpdate. Site info
-  // (name/location/etc) comes from the retained .../site_info topic.
-  const measurements = useFlowMeasurements(devices)
-  const siteInfo = useFlowSiteInfo(devices)
+  const rows = React.useMemo(() => Object.values(flowMonitors), [flowMonitors])
 
-  const rows = React.useMemo(
-    () =>
-      Object.values(flowMonitors).map(row => {
-        const measurement = measurements[row.key]
-        return {
-          key: row.key,
-          severity: row.severity,
-          lastUpdate: measurement?.lastUpdate ?? row.lastUpdate,
-          readings: measurement?.readings ?? {},
-          siteInfo: siteInfo[row.key] ?? {},
-        }
-      }),
-    [flowMonitors, measurements, siteInfo]
-  )
+  // This component stays mounted at all times (DashboardTabs just toggles
+  // display:none) so its state survives switching tabs — but <Routes>
+  // itself doesn't know that, and logs a "No routes matched" warning every
+  // time the URL is on a different tab's path. Skipping the match attempt
+  // entirely while this tab isn't the active route removes that noise
+  // without changing DashboardTabs' always-mounted design.
+  const location = useLocation()
+  if (!location.pathname.startsWith('/flow-monitors')) {
+    return null
+  }
 
   return (
     <Routes>
-      <Route path="/flow-monitors" element={<FlowMonitorBoard devices={rows} linkTo={key => `/flow-monitors/${key}`} />} />
+      <Route
+        path="/flow-monitors"
+        element={
+          <SimpleDeviceGrid
+            devices={rows}
+            keyLabel="Site"
+            renderCard={row => (
+              <SimpleDeviceCard
+                key={row.key}
+                deviceKey={row.key}
+                deviceType="Flow Monitor"
+                severity={row.severity}
+                lastUpdate={row.lastUpdate}
+                linkTo={`/flow-monitors/${row.key}`}
+              />
+            )}
+          />
+        }
+      />
       <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} />} />
     </Routes>
   )

@@ -1,13 +1,15 @@
 import * as React from 'react'
 import { connect } from 'react-redux'
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
-import { dashboardConfig } from './config'
+import { dashboardConfig, Severity } from './config'
 import { useTopicChildren, ChildTopic } from './useTopicChildren'
-import DeviceTable from './DeviceTable'
+import SimpleDeviceGrid from './SimpleDeviceGrid'
+import SimpleDeviceCard from './SimpleDeviceCard'
 import PumpStationDetail from './PumpStationDetail'
-import { DeviceSnapshot, useMqttStore } from './store/mqttStore'
+import { usePumpStationSummary } from './usePumpStationSummary'
+import { useMqttStore } from './store/mqttStore'
 
 interface Props {
   tree?: q.Tree<any>
@@ -38,30 +40,80 @@ function PumpStationDetailRoute({ devices }: { devices: ChildTopic[] }) {
   )
 }
 
-function PumpStationsTable({ devices }: { devices: DeviceSnapshot[] }) {
+interface PumpStationRow {
+  key: string
+  severity: Severity
+  lastUpdate: number
+  node: q.TreeNode<any>
+}
+
+/**
+ * One card, as its own component (not inlined in the .map below) because it
+ * calls usePumpStationSummary per station to build the UnitStatus subtitle —
+ * a hook can't be called conditionally inside a loop, but it's fine as one
+ * call per mounted card instance.
+ */
+function PumpStationGridCard({ row }: { row: PumpStationRow }) {
+  const summary = usePumpStationSummary(row.node)
+  const description = summary.unitStatus['Description']
+  const location = summary.unitStatus['Location']
+  const subtitle = [description, location].filter(Boolean).join(' — ') || undefined
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 16px 0', fontSize: 12, opacity: 0.7 }}>
-        Reading from topic prefix <code>{dashboardConfig.pumpStations.topicPrefix}</code> (config:{' '}
-        <code>app/src/dashboard/config.ts</code>). Click a serial to see status, digital input alarms, and analog
-        trends.
-      </div>
-      <DeviceTable devices={devices} keyLabel="Serial" linkTo={key => `/pump-stations/${key}`} />
-    </div>
+    <SimpleDeviceCard
+      deviceKey={row.key}
+      deviceType="Pump Station"
+      severity={row.severity}
+      lastUpdate={row.lastUpdate}
+      linkTo={`/pump-stations/${row.key}`}
+      subtitle={subtitle}
+    />
   )
 }
 
+/**
+ * Pump Stations: a filterable card grid — each card links to that
+ * station's own full device dashboard (PumpStationDetail, which has all
+ * Unit Status fields, not just the Description/Location shown here).
+ */
 function PumpStations({ tree }: Props) {
-  // Detail route still needs the tree node; the table reads current-value/
-  // severity snapshots from the shared store instead (see FlowMonitors.tsx
-  // for the same split).
+  // The detail route needs the actual tree node (for TopicPlot history
+  // etc), so it still reads through useTopicChildren. The grid takes
+  // severity/lastUpdate from the shared store, same split as FlowMonitors.tsx.
   const devices = useTopicChildren(tree, dashboardConfig.pumpStations.topicPrefix)
   const pumpStations = useMqttStore(s => s.pumpStations)
-  const rows = React.useMemo(() => Object.values(pumpStations), [pumpStations])
+
+  const rows = React.useMemo<PumpStationRow[]>(
+    () =>
+      devices.map(d => {
+        const snapshot = pumpStations[d.key]
+        return {
+          key: d.key,
+          severity: snapshot?.severity ?? 'OK',
+          lastUpdate: snapshot?.lastUpdate ?? d.node.lastUpdate,
+          node: d.node,
+        }
+      }),
+    [devices, pumpStations]
+  )
+
+  // This component stays mounted at all times (DashboardTabs just toggles
+  // display:none) so its state survives switching tabs — but <Routes>
+  // itself doesn't know that, and logs a "No routes matched" warning every
+  // time the URL is on a different tab's path. Skipping the match attempt
+  // entirely while this tab isn't the active route removes that noise
+  // without changing DashboardTabs' always-mounted design.
+  const location = useLocation()
+  if (!location.pathname.startsWith('/pump-stations')) {
+    return null
+  }
 
   return (
     <Routes>
-      <Route path="/pump-stations" element={<PumpStationsTable devices={rows} />} />
+      <Route
+        path="/pump-stations"
+        element={<SimpleDeviceGrid devices={rows} keyLabel="Serial" renderCard={row => <PumpStationGridCard key={row.key} row={row} />} />}
+      />
       <Route path="/pump-stations/:serial" element={<PumpStationDetailRoute devices={devices} />} />
     </Routes>
   )
