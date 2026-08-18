@@ -183,6 +183,32 @@ export interface PumpStationWetWellDimension {
   dimensionName: string | null
   dimensionValue: number | null
   dimensionUnits: string | null
+  // Below: sourced from SPUMPSTA_H / OPCAudit_Live directly (see
+  // getPumpStationWetWellInfo) rather than the not-yet-created
+  // pump_station_wet_well table the fields above were originally meant for.
+  volumeGallons: number | null // SPUMPSTA_H.WetWellVolume
+  elevationAtBottom: number | null // SPUMPSTA_H.ElevationAtBottom
+  material: string | null // SPUMPSTA_H.WetWellMaterial
+  comments: string | null // SPUMPSTA_H.Comments — sometimes carries a freeform "X' dia X Y' deep" note
+  diameterFt: number | null // parsed out of comments, when present
+  depthFt: number | null // parsed out of comments, when present
+  currentLevelFt: number | null // live "Wet Well Level" analog reading
+  levelLastSeenAt: string | null
+
+  // GIS attributes (SPUMPSTA_H), shown alongside the tank gauge as
+  // read-only context rather than folded into the gauge itself.
+  facilityId: string | null
+  facilityName: string | null
+  stationType: string | null
+  basin: string | null
+  subBasin: string | null
+  dryWellMaterial: string | null
+  stationPumpCount: number | null
+  stationDesignCapacity: number | null
+
+  // OPC station link (OPCAudit_Live), same join used to source currentLevelFt.
+  opcSerialNumber: string | null
+  opcStationName: string | null
 }
 
 export interface PumpStationWetWellInfoResponse {

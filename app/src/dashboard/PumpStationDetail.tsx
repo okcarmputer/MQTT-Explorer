@@ -6,7 +6,7 @@ import DigitalInputRow from './DigitalInputRow'
 import { readGroupFields } from './pumpStationLeaf'
 import { usePumpStationSummary } from './usePumpStationSummary'
 import { useSqlWetWellInfo } from './useSqlWetWellInfo'
-import WetWellGauge from './widgets/WetWellGauge'
+import WetWellTankGauge from './widgets/WetWellTankGauge'
 import { RuntimeClock } from './widgets/Readings'
 
 interface Props {
@@ -53,24 +53,88 @@ function ordinalSuffix(day: number): string {
   }
 }
 
+// UnitStatus carries its own "Timezone" field (the OPC/RTU site's
+// timezone — see logger.py's NODE_TREE) which is NOT the same as either
+// the broker's timezone or the browser viewing this dashboard's timezone.
+// Every other timestamp field on this same UnitStatus is a true UTC
+// instant (epoch, or an ISO string with an explicit offset/"Z"), so
+// formatting it with plain Date getters (which read the *browser's* local
+// zone) silently shows the wrong wall-clock time whenever the viewer isn't
+// in the same zone as the site. This resolves whatever shape "Timezone"
+// turns out to be (an IANA name like "America/New_York", or a raw
+// UTC-offset-in-minutes like flow monitors' site_info UTC Offset field —
+// the schema isn't documented anywhere in this repo) into an actual
+// display, so every UnitStatus timestamp always reads as the site's own
+// local time, not whichever machine happens to be looking at it.
+function resolveSiteTimeZone(rawTimezone: unknown): { ianaZone?: string; offsetMinutes?: number } {
+  if (typeof rawTimezone === 'string' && rawTimezone.trim() !== '') {
+    // A plausible IANA zone name ("America/New_York", "US/Eastern", "UTC")
+    // — verify it's actually usable before trusting it, since a garbage
+    // string would otherwise throw inside Intl.DateTimeFormat later.
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: rawTimezone })
+      return { ianaZone: rawTimezone }
+    } catch {
+      // fall through — maybe it's a numeric offset formatted as a string
+    }
+  }
+
+  const offsetMinutes = Number(rawTimezone)
+  if (!Number.isNaN(offsetMinutes) && rawTimezone !== '' && rawTimezone !== null && rawTimezone !== undefined) {
+    return { offsetMinutes }
+  }
+
+  return {}
+}
+
 // "August 6th, 2026 at 1:27PM" — friendlier than a raw epoch/ISO value for
-// any UnitStatus field that reads as a timestamp.
-function formatFriendlyDateTime(date: Date): string {
-  const month = date.toLocaleString('en-US', { month: 'long' })
-  const day = date.getDate()
-  const year = date.getFullYear()
-  let hours = date.getHours()
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12 || 12
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  return `${month} ${day}${ordinalSuffix(day)}, ${year} at ${hours}:${minutes}${ampm}`
+// any UnitStatus field that reads as a timestamp, rendered in the site's
+// own timezone (see resolveSiteTimeZone) rather than the viewer's.
+function formatFriendlyDateTime(date: Date, siteTimeZone: { ianaZone?: string; offsetMinutes?: number }): string {
+  if (siteTimeZone.ianaZone) {
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: siteTimeZone.ianaZone,
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date)
+    // Intl gives "August 6, 2026 at 1:27 PM" — swap in the ordinal suffix
+    // and drop the space before AM/PM to match this app's existing style.
+    return formatted.replace(/(\d+),/, (_, day) => `${day}${ordinalSuffix(Number(day))},`).replace(' PM', 'PM').replace(' AM', 'AM')
+  }
+
+  // No IANA name (or none resolvable) — shift the instant by the raw
+  // UTC-offset-in-minutes ourselves, then read it back with UTC getters
+  // (never local getters, which would apply the *browser's* zone on top of
+  // this shift and double-count the offset).
+  const shifted =
+    siteTimeZone.offsetMinutes !== undefined ? new Date(date.getTime() + siteTimeZone.offsetMinutes * 60_000) : date
+  const getMonth = siteTimeZone.offsetMinutes !== undefined ? shifted.getUTCMonth() : shifted.getMonth()
+  const getDate = siteTimeZone.offsetMinutes !== undefined ? shifted.getUTCDate() : shifted.getDate()
+  const getYear = siteTimeZone.offsetMinutes !== undefined ? shifted.getUTCFullYear() : shifted.getFullYear()
+  const getHours = siteTimeZone.offsetMinutes !== undefined ? shifted.getUTCHours() : shifted.getHours()
+  const getMinutes = siteTimeZone.offsetMinutes !== undefined ? shifted.getUTCMinutes() : shifted.getMinutes()
+
+  const monthName = new Date(2000, getMonth, 1).toLocaleString('en-US', { month: 'long' })
+  const ampm = getHours >= 12 ? 'PM' : 'AM'
+  const hours12 = getHours % 12 || 12
+  const minutesStr = getMinutes.toString().padStart(2, '0')
+  return `${monthName} ${getDate}${ordinalSuffix(getDate)}, ${getYear} at ${hours12}:${minutesStr}${ampm}`
 }
 
 // UnitStatus's field list isn't documented anywhere in this repo (it's
 // rendered generically — see below), so timestamp fields are detected by
-// name/shape rather than assumed to be a specific key.
+// name/shape rather than assumed to be a specific key. "Timezone" itself
+// is excluded even though its name contains "time" — it's the zone
+// descriptor, not a timestamp to convert.
 function tryParseTimestamp(key: string, value: unknown): Date | undefined {
   const keyLower = key.toLowerCase()
+  if (keyLower === 'timezone') {
+    return undefined
+  }
   if (!keyLower.includes('timestamp') && !keyLower.includes('time') && !keyLower.includes('date')) {
     return undefined
   }
@@ -112,6 +176,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
   // than a hardcoded subset — the payload's field list isn't documented
   // anywhere in this repo, so this adapts to whatever logger.py publishes.
   const unitStatusEntries = Object.entries(unitStatus).filter(([key]) => key !== undefined)
+  const siteTimeZone = React.useMemo(() => resolveSiteTimeZone(unitStatus['Timezone']), [unitStatus['Timezone']])
 
   const acPowerNode = deviceNode.edges['ACPower']?.target
   const acPowerVoltsNode = acPowerNode?.edges['Volts']?.target
@@ -146,8 +211,6 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
   const wetWellInfo = useSqlWetWellInfo(deviceKey)
   const wetWell = wetWellInfo?.wetWell
   const levelInput = summary.analogInputs.find(a => a.label.toLowerCase().includes('level'))
-  const levelValue = levelInput ? Number(levelInput.value) : undefined
-  const depthValue = wetWell?.dimensionValue ?? undefined
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', overflow: 'auto' }}>
@@ -193,33 +256,54 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
       )}
 
       <h3>Wet Well</h3>
-      <div className="cmom-card-row" style={{ marginBottom: 20 }}>
-        {!levelInput ? (
-          <div style={{ opacity: 0.7 }}>No analog input labeled "Level" found for this station.</div>
-        ) : depthValue === undefined || depthValue === null ? (
-          <div style={{ opacity: 0.7 }}>
-            Wet well depth isn&apos;t configured in SQL yet — showing the raw level reading only.
-            {levelValue !== undefined && !Number.isNaN(levelValue) && levelInput.node.edges['ScaledValue']?.target && (
-              <div style={{ marginTop: 8 }}>
-                <ValuePanel
-                  title={levelInput.label}
-                  node={levelInput.node.edges['ScaledValue']!.target}
-                  valuePath="value"
-                  unit={levelInput.unit}
-                />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--cmom-space-3, 12px)', alignItems: 'flex-start', marginBottom: 20 }}>
+        <WetWellTankGauge
+          title={levelInput?.label || 'Wet Well Level'}
+          volumeGallons={wetWell?.volumeGallons ?? null}
+          diameterFt={wetWell?.diameterFt ?? null}
+          depthFt={wetWell?.depthFt ?? null}
+          currentLevelFt={wetWell?.currentLevelFt ?? null}
+          material={wetWell?.material ?? null}
+        />
+
+        {!wetWell ? (
+          <div style={{ opacity: 0.7, alignSelf: 'center' }}>No GIS/OPC record found for this station.</div>
+        ) : (
+          <div
+            className="cmom-card-row"
+            style={{
+              flex: '1 1 320px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+              gap: 8,
+              alignContent: 'start',
+            }}
+          >
+            <StatusField label="Facility ID" value={wetWell.facilityId} />
+            <StatusField label="Facility Name" value={wetWell.facilityName} />
+            <StatusField label="Station Type" value={wetWell.stationType} />
+            <StatusField label="Basin" value={wetWell.basin} />
+            <StatusField label="Sub-Basin" value={wetWell.subBasin} />
+            <StatusField label="Wet Well Material" value={wetWell.material} />
+            <StatusField label="Dry Well Material" value={wetWell.dryWellMaterial} />
+            <StatusField label="Pump Count" value={wetWell.stationPumpCount} />
+            <StatusField
+              label="Design Capacity"
+              value={wetWell.stationDesignCapacity !== null ? `${wetWell.stationDesignCapacity} gpm` : undefined}
+            />
+            <StatusField label="Elevation at Bottom" value={wetWell.elevationAtBottom} />
+            <StatusField label="OPC Serial Number" value={wetWell.opcSerialNumber} />
+            <StatusField label="OPC Station Name" value={wetWell.opcStationName} />
+            <StatusField
+              label="Level Last Seen"
+              value={wetWell.levelLastSeenAt ? new Date(wetWell.levelLastSeenAt).toLocaleString() : undefined}
+            />
+            {wetWell.comments && (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <StatusField label="Comments" value={wetWell.comments} />
               </div>
             )}
           </div>
-        ) : levelValue === undefined || Number.isNaN(levelValue) ? (
-          <div style={{ opacity: 0.7 }}>No reading yet from {levelInput.label}.</div>
-        ) : (
-          <WetWellGauge
-            title={levelInput.label}
-            depthValue={depthValue}
-            depthUnit={wetWell?.dimensionUnits || 'ft'}
-            levelValue={levelValue}
-            levelUnit={levelInput.unit}
-          />
         )}
       </div>
 
@@ -247,7 +331,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           {unitStatusEntries.map(([key, value]) => {
             const asDate = tryParseTimestamp(key, value)
             const display = asDate
-              ? formatFriendlyDateTime(asDate)
+              ? formatFriendlyDateTime(asDate, siteTimeZone)
               : typeof value === 'object' && value !== null
                 ? JSON.stringify(value)
                 : String(value)

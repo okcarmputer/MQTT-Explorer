@@ -91,7 +91,7 @@ export default function TrendPanel({ title, node, dotPath, unit, sqlBaselineText
           node={node}
           history={node.messageHistory}
           dotPath={dotPath}
-          timeInterval={timeRange}
+          timeInterval={timeRange || undefined}
           centerNow
           axisColor="#8b949e"
           gridColor="#2a3139"

@@ -222,20 +222,94 @@ export async function getFlowMonitorPortInfo(siteNumber: string): Promise<FlowMo
   return { configured: true, siteNumber, ports }
 }
 
-// Working name only — this table doesn't exist yet (per the user: "sql
-// table i will make soon"). Mirrors dbo.hach_port_info's shape/dimension
-// columns so the same FlowMonitorPortDimension-style display code (see
-// WetWellGauge) can read it once it's created. Rename this query (and the
-// column names below) to match whatever the real table ends up being
-// called — until then, the missing-table SQL error is caught by the
-// caller (src/electron.ts / src/server.ts) the same way every other SQL
-// query's failure already degrades to "unavailable" rather than crashing.
+// Pulls wet well physical info straight out of the GIS pump station table
+// (SPUMPSTA_H) plus the live level reading from OPCAudit_Live, joined by the
+// FacilityID-prefix convention the OPC station names follow (e.g. "204
+// Eastcliff" -> FacilityID 204). There is no dedicated wet well dimensions
+// table — GIS only carries WetWellVolume (gallons) as a structured field;
+// physical dimensions (diameter/depth), when known at all, are buried in
+// freeform Comments text like "4' dia X 19' deep wet well" and are parsed
+// out in JS below rather than in T-SQL.
 const WET_WELL_QUERY = `
+WITH StationCurrent AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY FacilityID
+            ORDER BY EditDate DESC, GDB_ARCHIVE_OID DESC
+        ) AS rn
+    FROM [sde].[gisadmin].[SPUMPSTA_H]
+    WHERE GDB_TO_DATE = '9999-12-31 00:00:00.0000000'
+),
+-- Resolved for @serial specifically, not ranked/tiebroken against sibling
+-- OPC serials sharing the same FacilityID (the original multi-station
+-- version of this query does that ranking to pick one "best" row per
+-- facility for a station list — here we already know exactly which serial
+-- we want, so filtering by SerialNumber up front avoids a losing tiebreak
+-- silently excluding a valid, real serial from its own detail page).
+ThisOpcStation AS (
+    SELECT
+        SerialNumber,
+        MAX(Description) AS StationName,
+        TRY_CAST(
+            LEFT(MAX(Description), NULLIF(CHARINDEX(' ', MAX(Description)) - 1, -1))
+            AS INT
+        ) AS ParsedFacilityID
+    FROM [flow_monitor].[dbo].[OPCAudit_Live]
+    WHERE FieldName IN ('UnacknowledgedAlarms', 'Timezone')
+      AND SerialNumber = @serial
+    GROUP BY SerialNumber
+),
+LevelReadings AS (
+    SELECT
+        SerialNumber,
+        TRY_CAST(Value AS FLOAT) AS CurrentLevelFt,
+        LastSeenAt AS LevelLastSeenAt
+    FROM [flow_monitor].[dbo].[OPCAudit_Live]
+    WHERE FieldName = 'ScaledValue'
+      AND PointName = 'AnalogInput1'
+      AND Description LIKE '%Wet Well Level%'
+      AND SerialNumber = @serial
+)
 SELECT TOP 1
-    Shape, DimensionName, DimensionValue, DimensionUnits
-FROM dbo.pump_station_wet_well
-WHERE Serial = @serial;
+    p.FacilityID,
+    p.FacilityName,
+    p.Type AS StationType,
+    p.Basin,
+    p.SubBasin,
+    p.WetWellVolume,
+    p.ElevationAtBottom,
+    p.WetWellMaterial,
+    p.DryWellMaterial,
+    p.NumberOfPumps AS StationPumpCount,
+    p.DesignCapacity AS StationDesignCapacity,
+    p.Comments AS StationComments,
+    ol.SerialNumber AS OPC_SerialNumber,
+    ol.StationName AS OPC_StationName,
+    lr.CurrentLevelFt,
+    lr.LevelLastSeenAt
+FROM ThisOpcStation ol
+INNER JOIN StationCurrent p
+    ON TRY_CAST(p.FacilityID AS INT) = ol.ParsedFacilityID
+    AND p.rn = 1
+    AND p.Enabled = 1
+LEFT JOIN LevelReadings lr
+    ON lr.SerialNumber = ol.SerialNumber;
 `
+
+// Pulls "4' dia X 19' deep", "10' DIA X 12' DEEP WET WELL", "8' dia x 16'
+// deep", etc. out of freeform Comments text. Case-insensitive, tolerant of
+// straight/curly apostrophes and "diameter"/"deep"/"depth" spellings. Not
+// every station's Comments contains this — most don't — so both may be null.
+function parseDiameterAndDepthFt(comments: string | null): { diameterFt: number | null; depthFt: number | null } {
+  if (!comments) {
+    return { diameterFt: null, depthFt: null }
+  }
+  const diaMatch = comments.match(/(\d+(?:\.\d+)?)\s*['’]?\s*(?:dia(?:meter)?)\b/i)
+  const depthMatch = comments.match(/(\d+(?:\.\d+)?)\s*['’]?\s*deep\b|(\d+(?:\.\d+)?)\s*['’]?\s*depth\b/i)
+  const diameterFt = diaMatch ? parseFloat(diaMatch[1]) : null
+  const depthFt = depthMatch ? parseFloat(depthMatch[1] ?? depthMatch[2]) : null
+  return { diameterFt, depthFt }
+}
 
 export async function getPumpStationWetWellInfo(serial: string): Promise<PumpStationWetWellInfoResponse> {
   if (!isSqlReportingConfigured()) {
@@ -250,14 +324,34 @@ export async function getPumpStationWetWellInfo(serial: string): Promise<PumpSta
     return { configured: true, serial, wetWell: null }
   }
 
+  const { diameterFt, depthFt } = parseDiameterAndDepthFt(row.StationComments)
+
   return {
     configured: true,
     serial,
     wetWell: {
-      shape: row.Shape,
-      dimensionName: row.DimensionName,
-      dimensionValue: row.DimensionValue,
-      dimensionUnits: row.DimensionUnits,
+      shape: null,
+      dimensionName: null,
+      dimensionValue: null,
+      dimensionUnits: null,
+      volumeGallons: row.WetWellVolume,
+      elevationAtBottom: row.ElevationAtBottom,
+      material: row.WetWellMaterial,
+      comments: row.StationComments,
+      diameterFt,
+      depthFt,
+      currentLevelFt: row.CurrentLevelFt,
+      levelLastSeenAt: row.LevelLastSeenAt ? new Date(row.LevelLastSeenAt).toISOString() : null,
+      facilityId: row.FacilityID !== undefined && row.FacilityID !== null ? String(row.FacilityID) : null,
+      facilityName: row.FacilityName,
+      stationType: row.StationType,
+      basin: row.Basin,
+      subBasin: row.SubBasin,
+      dryWellMaterial: row.DryWellMaterial,
+      stationPumpCount: row.StationPumpCount,
+      stationDesignCapacity: row.StationDesignCapacity,
+      opcSerialNumber: row.OPC_SerialNumber,
+      opcStationName: row.OPC_StationName,
     },
   }
 }

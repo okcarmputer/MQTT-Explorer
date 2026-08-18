@@ -6,15 +6,21 @@ export interface TimeRangeOption {
   value: string
 }
 
+// Empty string is the "All time" sentinel — TopicPlot/TrendPanel treat it as
+// no timeInterval at all, i.e. no start-time filtering (see TrendPanel).
+export const ALL_TIME_VALUE = ''
+
 export const TIME_RANGE_OPTIONS: TimeRangeOption[] = [
-  { label: '1h', value: '1h' },
-  { label: '24h', value: '24h' },
-  { label: '1w', value: '7d' },
-  { label: '1m', value: '30d' },
-  { label: '1y', value: '365d' },
+  { label: '1min', value: '1m' },
+  { label: '5min', value: '5m' },
+  { label: '30min', value: '30m' },
+  { label: '1hr', value: '1h' },
+  { label: '6hr', value: '6h' },
+  { label: '24hr', value: '24h' },
+  { label: 'All', value: ALL_TIME_VALUE },
 ]
 
-export const DEFAULT_TIME_RANGE = '24h'
+export const DEFAULT_TIME_RANGE = '30m'
 
 interface Props {
   value: string
