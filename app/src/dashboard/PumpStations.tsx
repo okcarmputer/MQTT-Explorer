@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { connect } from 'react-redux'
 import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
+import PumpStationMissingAttributes from './PumpStationMissingAttributes'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { dashboardConfig, Severity } from './config'
@@ -8,7 +9,9 @@ import { useTopicChildren, ChildTopic } from './useTopicChildren'
 import SimpleDeviceGrid from './SimpleDeviceGrid'
 import SimpleDeviceCard from './SimpleDeviceCard'
 import PumpStationDetail from './PumpStationDetail'
-import { usePumpStationSummary } from './usePumpStationSummary'
+import { usePumpStationSummary, buildSummary, liveWetWellLevelFt } from './usePumpStationSummary'
+import { useSqlWetWellInfo } from './useSqlWetWellInfo'
+import WetWellTankGauge from './widgets/WetWellTankGauge'
 import { useMqttStore } from './store/mqttStore'
 
 interface Props {
@@ -45,19 +48,27 @@ interface PumpStationRow {
   severity: Severity
   lastUpdate: number
   node: q.TreeNode<any>
+  searchText: string
 }
 
 /**
  * One card, as its own component (not inlined in the .map below) because it
  * calls usePumpStationSummary per station to build the UnitStatus subtitle —
  * a hook can't be called conditionally inside a loop, but it's fine as one
- * call per mounted card instance.
+ * call per mounted card instance. Also fetches wet well dimensions (same RPC
+ * PumpStationDetail's own gauge uses) for a compact preview gauge, so the
+ * level is visible without clicking in.
  */
 function PumpStationGridCard({ row }: { row: PumpStationRow }) {
   const summary = usePumpStationSummary(row.node)
   const description = summary.unitStatus['Description']
   const location = summary.unitStatus['Location']
   const subtitle = [description, location].filter(Boolean).join(' — ') || undefined
+
+  const wetWellInfo = useSqlWetWellInfo(row.key)
+  const wetWell = wetWellInfo?.wetWell
+  const liveLevelFt = liveWetWellLevelFt(summary)
+  const currentLevelFt = wetWell?.currentLevelFt ?? liveLevelFt
 
   return (
     <SimpleDeviceCard
@@ -67,7 +78,20 @@ function PumpStationGridCard({ row }: { row: PumpStationRow }) {
       lastUpdate={row.lastUpdate}
       linkTo={`/pump-stations/${row.key}`}
       subtitle={subtitle}
-    />
+    >
+      <WetWellTankGauge
+        compact
+        title="Wet Well Level"
+        shape={wetWell?.shape ?? null}
+        volumeGallons={wetWell?.volumeGallons ?? null}
+        diameterFt={wetWell?.diameterFt ?? null}
+        depthFt={wetWell?.depthFt ?? null}
+        lengthFt={wetWell?.lengthFt ?? null}
+        widthFt={wetWell?.widthFt ?? null}
+        currentLevelFt={currentLevelFt ?? null}
+        material={wetWell?.material ?? null}
+      />
+    </SimpleDeviceCard>
   )
 }
 
@@ -77,6 +101,7 @@ function PumpStationGridCard({ row }: { row: PumpStationRow }) {
  * Unit Status fields, not just the Description/Location shown here).
  */
 function PumpStations({ tree }: Props) {
+  const navigate = useNavigate()
   // The detail route needs the actual tree node (for TopicPlot history
   // etc), so it still reads through useTopicChildren. The grid takes
   // severity/lastUpdate from the shared store, same split as FlowMonitors.tsx.
@@ -87,11 +112,20 @@ function PumpStations({ tree }: Props) {
     () =>
       devices.map(d => {
         const snapshot = pumpStations[d.key]
+        // Non-reactive read (buildSummary, not the usePumpStationSummary
+        // hook — can't call a hook inside .map) just for search text; the
+        // card itself still calls the reactive hook for its live subtitle.
+        const summary = buildSummary(d.node)
+        const searchText = [d.key, summary.unitStatus['Description'], summary.unitStatus['Location']]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
         return {
           key: d.key,
           severity: snapshot?.severity ?? 'OK',
           lastUpdate: snapshot?.lastUpdate ?? d.node.lastUpdate,
           node: d.node,
+          searchText,
         }
       }),
     [devices, pumpStations]
@@ -112,8 +146,32 @@ function PumpStations({ tree }: Props) {
     <Routes>
       <Route
         path="/pump-stations"
-        element={<SimpleDeviceGrid devices={rows} keyLabel="Serial" renderCard={row => <PumpStationGridCard key={row.key} row={row} />} />}
+        element={
+          <SimpleDeviceGrid
+            devices={rows}
+            keyLabel="Serial"
+            searchLabel="serial, description, or location"
+            renderCard={row => <PumpStationGridCard key={row.key} row={row} />}
+            headerActions={
+              <button
+                type="button"
+                onClick={() => navigate('/pump-stations/missing-attributes')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 'var(--cmom-radius-sm)',
+                  border: '1px solid var(--cmom-border-strong)',
+                  background: 'transparent',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                Missing Attributes
+              </button>
+            }
+          />
+        }
       />
+      <Route path="/pump-stations/missing-attributes" element={<PumpStationMissingAttributes />} />
       <Route path="/pump-stations/:serial" element={<PumpStationDetailRoute devices={devices} />} />
     </Routes>
   )

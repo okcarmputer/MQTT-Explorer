@@ -29,6 +29,9 @@ function AnomalyCard({ anomaly }: { anomaly: CurrentAnomaly }) {
       </div>
       <div style={{ fontFamily: 'var(--cmom-font-mono)', fontWeight: 700, fontSize: 14, marginTop: 4 }}>{anomaly.deviceKey}</div>
       <div style={{ fontFamily: 'var(--cmom-font-mono)', fontSize: 11, opacity: 0.7, marginTop: 2 }}>{anomaly.anomalyType}</div>
+      {anomaly.description && (
+        <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.35 }}>{anomaly.description}</div>
+      )}
       <div style={{ color, fontWeight: 700, fontSize: 13, marginTop: 6 }}>{anomaly.severity}</div>
     </Link>
   )

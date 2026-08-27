@@ -25,12 +25,13 @@ export const DEFAULT_TIME_RANGE = '30m'
 interface Props {
   value: string
   onChange: (value: string) => void
+  options?: TimeRangeOption[]
 }
 
-export default function TimeRangeToggle({ value, onChange }: Props) {
+export default function TimeRangeToggle({ value, onChange, options }: Props) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-      {TIME_RANGE_OPTIONS.map(option => (
+      {(options ?? TIME_RANGE_OPTIONS).map(option => (
         <button
           key={option.value}
           type="button"

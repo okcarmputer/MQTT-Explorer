@@ -3,13 +3,16 @@ import { connect } from 'react-redux'
 import { Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
-import { dashboardConfig } from './config'
+import { dashboardConfig, flowChannels } from './config'
 import { useTopicChildren, ChildTopic } from './useTopicChildren'
 import SimpleDeviceGrid from './SimpleDeviceGrid'
 import SimpleDeviceCard from './SimpleDeviceCard'
 import FlowMonitorDetail from './FlowMonitorDetail'
 import DataChannelTypes from './DataChannelTypes'
+import FlowMonitorMissingAttributes from './FlowMonitorMissingAttributes'
 import { useFlowSiteInfo } from './useFlowSiteInfo'
+import { useFlowPortInfo, extractDiameter, FlowPortInfo } from './useFlowPortInfo'
+import PipeGauge from './widgets/PipeGauge'
 import { useMqttStore, DeviceSnapshot } from './store/mqttStore'
 
 interface Props {
@@ -41,7 +44,62 @@ function FlowMonitorDetailRoute({ devices }: { devices: ChildTopic[] }) {
   )
 }
 
-function FlowMonitorsGrid({ rows, siteInfo }: { rows: DeviceSnapshot[]; siteInfo: ReturnType<typeof useFlowSiteInfo> }) {
+interface FlowMonitorRow extends DeviceSnapshot {
+  node?: q.TreeNode<any>
+  searchText: string
+}
+
+const levelChannelConfig = flowChannels.find(c => c.key === 'level')
+
+/**
+ * Compact live-level preview gauge for one card — subscribes directly to
+ * the site's Level channel node (same flowChannels/config.ts source
+ * FlowMonitorDetail's own full-size PipeGauge reads) so the reading updates
+ * without needing to click into the site's detail page.
+ */
+function FlowMonitorLevelGauge({ node, ports }: { node: q.TreeNode<any>; ports: FlowPortInfo[] }) {
+  const [, setTick] = React.useState(0)
+  const levelNode = levelChannelConfig ? node.edges[levelChannelConfig.id]?.target : undefined
+
+  React.useEffect(() => {
+    if (!levelNode) return
+    const rerender = () => setTick(t => t + 1)
+    levelNode.onMessage.subscribe(rerender)
+    return () => levelNode.onMessage.unsubscribe(rerender)
+  }, [levelNode])
+
+  const levelValue = React.useMemo(() => {
+    const payload = levelNode?.message?.payload?.toUnicodeString()
+    if (!payload) return undefined
+    try {
+      const json = JSON.parse(payload)
+      return json.Value !== undefined ? Number(json.Value) : undefined
+    } catch {
+      return undefined
+    }
+  }, [levelNode?.message])
+
+  const diameter = extractDiameter(ports)
+  const diameterValue = diameter?.value ?? levelChannelConfig?.gaugeMaxInches
+  const diameterUnit = diameter?.unit ?? 'in'
+
+  if (levelValue === undefined || Number.isNaN(levelValue) || diameterValue === undefined) {
+    return null
+  }
+
+  return (
+    <PipeGauge
+      compact
+      title="Level"
+      diameterValue={diameterValue}
+      diameterUnit={diameterUnit}
+      levelValue={levelValue}
+      levelUnit={levelChannelConfig?.unit || 'in'}
+    />
+  )
+}
+
+function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; siteInfo: ReturnType<typeof useFlowSiteInfo>; ports: Record<string, FlowPortInfo[]> }) {
   const navigate = useNavigate()
 
   return (
@@ -66,6 +124,7 @@ function FlowMonitorsGrid({ rows, siteInfo }: { rows: DeviceSnapshot[]; siteInfo
         <SimpleDeviceGrid
           devices={rows}
           keyLabel="Site"
+          searchLabel="site ID, name, description, or location"
           renderCard={row => {
             // site_info's field casing isn't documented anywhere in this
             // repo (see useFlowSiteInfo), so this looks for any key that
@@ -81,9 +140,27 @@ function FlowMonitorsGrid({ rows, siteInfo }: { rows: DeviceSnapshot[]; siteInfo
                 lastUpdate={row.lastUpdate}
                 linkTo={`/flow-monitors/${row.key}`}
                 subtitle={locationKey ? info[locationKey] : undefined}
-              />
+              >
+                {row.node && <FlowMonitorLevelGauge node={row.node} ports={ports[row.key] ?? []} />}
+              </SimpleDeviceCard>
             )
           }}
+          headerActions={
+            <button
+              type="button"
+              onClick={() => navigate('/flow-monitors/missing-attributes')}
+              style={{
+                padding: '4px 12px',
+                borderRadius: 'var(--cmom-radius-sm)',
+                border: '1px solid var(--cmom-border-strong)',
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              Missing Attributes
+            </button>
+          }
         />
       </div>
     </div>
@@ -103,12 +180,30 @@ function FlowMonitors({ tree }: Props) {
   // severity/lastUpdate straight from the shared store.
   const devices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix, dashboardConfig.flowMonitors.metadataChildren)
   const flowMonitors = useMqttStore(s => s.flowMonitors)
-  const rows = React.useMemo(() => Object.values(flowMonitors), [flowMonitors])
   // Site name/location/etc from the retained .../site_info topic — same
   // source FlowMonitorDetail's Site Attributes card reads, just surfaced as
   // a one-line subtitle on the card here (mirrors Pump Stations' UnitStatus
-  // Description/Location subtitle).
+  // Description/Location subtitle), and now also as search text.
   const siteInfo = useFlowSiteInfo(devices)
+  // Batched across every device at once (not one hook call per card) —
+  // needed for the compact list-card pipe gauge's diameter.
+  const ports = useFlowPortInfo(devices)
+
+  const rows = React.useMemo<FlowMonitorRow[]>(
+    () =>
+      Object.values(flowMonitors).map(snapshot => {
+        const info = siteInfo[snapshot.key] ?? {}
+        const searchText = [snapshot.key, ...Object.values(info).filter((v): v is string => typeof v === 'string')]
+          .join(' ')
+          .toLowerCase()
+        return {
+          ...snapshot,
+          node: devices.find(d => d.key === snapshot.key)?.node,
+          searchText,
+        }
+      }),
+    [flowMonitors, devices, siteInfo]
+  )
 
   // This component stays mounted at all times (DashboardTabs just toggles
   // display:none) so its state survives switching tabs — but <Routes>
@@ -123,8 +218,9 @@ function FlowMonitors({ tree }: Props) {
 
   return (
     <Routes>
-      <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} />} />
+      <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} ports={ports} />} />
       <Route path="/flow-monitors/data-channel-types" element={<DataChannelTypes />} />
+      <Route path="/flow-monitors/missing-attributes" element={<FlowMonitorMissingAttributes />} />
       <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} />} />
     </Routes>
   )

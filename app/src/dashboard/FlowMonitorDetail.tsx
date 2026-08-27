@@ -1,6 +1,7 @@
 import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
+import { ALL_TIME_VALUE } from './TimeRangeToggle'
 import FlowTrendChart from './FlowTrendChart'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
 import { useSqlFlowHistory } from './useSqlFlowHistory'
@@ -9,12 +10,25 @@ import { formatFlowPortInfo, extractDiameter, readPortsForNode } from './useFlow
 import { flowChannels } from './config'
 import { humanizeKey } from './useFlowSiteInfo'
 import PipeGauge from './widgets/PipeGauge'
+import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
 
 const HISTORY_RANGE_OPTIONS = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 24 * 7 },
   { label: '30d', hours: 24 * 30 },
 ]
+
+// Flow monitor channel trend charts (Level/Velocity/Flow) default to a wider
+// window than the pump-station default (30min) — these devices are watched
+// over longer horizons — and drop the sub-hour presets that aren't useful here.
+const FLOW_CHANNEL_TIME_RANGE_OPTIONS = [
+  { label: '1hr', value: '1h' },
+  { label: '2hr', value: '2h' },
+  { label: '6hr', value: '6h' },
+  { label: '24hr', value: '24h' },
+  { label: 'All', value: ALL_TIME_VALUE },
+]
+const FLOW_CHANNEL_DEFAULT_TIME_RANGE = '2h'
 
 interface Props {
   deviceKey: string
@@ -74,6 +88,16 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
       return {}
     }
   }, [siteInfoNode?.message])
+
+  // site_info's field casing/naming isn't documented anywhere in this repo
+  // (see useFlowSiteInfo), so these look for any key that reads as "name"/
+  // "location" rather than assuming exact casing — same loose-match
+  // approach the Flow Monitors card grid's subtitle already uses.
+  const siteInfoKeys = Object.keys(siteInfo)
+  const siteNameKey = siteInfoKeys.find(k => k.toLowerCase().includes('name'))
+  const siteLocationKey = siteInfoKeys.find(k => k.toLowerCase().includes('location'))
+  const siteName = siteNameKey ? siteInfo[siteNameKey] : undefined
+  const siteLocation = siteLocationKey ? siteInfo[siteLocationKey] : undefined
 
   // Pulled directly via SQL (bypasses MQTT entirely) — see
   // Anomaly_Detection/DASHBOARD_INTEGRATION_INSTRUCTIONS.md Part 1 for the
@@ -148,34 +172,84 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
       >
         &larr; Back
       </button>
-      <h2 style={{ marginTop: 0 }}>
-        Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
+      <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <span>
+          Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
+        </span>
+        {(siteName || siteLocation) && (
+          <span style={{ fontSize: '0.55em', fontWeight: 400, opacity: 0.75, textAlign: 'right' }}>
+            {[siteName, siteLocation].filter(Boolean).join(' — ')}
+          </span>
+        )}
       </h2>
 
-      <h3>Pipe</h3>
-      {pipeDiameterValue === undefined || levelReadingValue === undefined || Number.isNaN(levelReadingValue) ? (
-        <div style={{ opacity: 0.7, marginBottom: 20 }}>
-          {pipeDiameterValue === undefined
-            ? 'No pipe diameter published (ports topic) or configured in SQL for this site yet.'
-            : 'No Level reading yet.'}
-        </div>
-      ) : (
-        <div className="cmom-card-row" style={{ marginBottom: 20 }}>
-          <PipeGauge
-            title="Level"
-            diameterValue={pipeDiameterValue}
-            diameterUnit={pipeDiameterUnit}
-            levelValue={levelReadingValue}
-            levelUnit={levelChannelConfig?.unit || 'in'}
-          />
-        </div>
-      )}
+      {(() => {
+        // Row 1 (Pipe / Site Attributes / Trend vs. baseline) and row 2
+        // (one equal-sized card per Level/Velocity/Flow channel) — three
+        // equal columns each, matching the reference layout. Row heights are
+        // shared constants (ROW1_H/ROW2_H) rather than per-panel numbers so
+        // every row-1 card starts the same height as its row-1 siblings, and
+        // likewise for row 2 — "each card the same size" by construction,
+        // not by coincidence.
+        const ROW1_H = 17
+        const ROW2_H = 16
+        // Bottom row in this fixed order (matching the reference image)
+        // rather than flowChannels' own declaration order.
+        const channelOrder = ['level', 'flow', 'velocity']
+        const orderedChannels = [...channels].sort(
+          (a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key)
+        )
 
-      {channels.length === 0 ? (
-        <div style={{ opacity: 0.7 }}>No Level/Velocity/Flow channels seen for this site yet.</div>
-      ) : (
-        <div className="cmom-trend-grid">
-          {channels.map(c => {
+        const panels: PanelSpec[] = [
+          {
+            id: 'pipe',
+            title: 'Pipe',
+            defaultLayout: { x: 0, y: 0, w: 4, h: ROW1_H },
+            content:
+              pipeDiameterValue === undefined || levelReadingValue === undefined || Number.isNaN(levelReadingValue) ? (
+                <div style={{ opacity: 0.7 }}>
+                  {pipeDiameterValue === undefined
+                    ? 'No pipe diameter published (ports topic) or configured in SQL for this site yet.'
+                    : 'No Level reading yet.'}
+                </div>
+              ) : (
+                <div style={{ height: '100%' }}>
+                  <PipeGauge
+                    title="Level"
+                    diameterValue={pipeDiameterValue}
+                    diameterUnit={pipeDiameterUnit}
+                    levelValue={levelReadingValue}
+                    levelUnit={levelChannelConfig?.unit || 'in'}
+                  />
+                </div>
+              ),
+          },
+          {
+            id: 'site-attributes',
+            title: 'Site Attributes',
+            defaultLayout: { x: 4, y: 0, w: 4, h: ROW1_H },
+            autoHeight: true,
+            content:
+              attributeRows.length === 0 ? (
+                <div style={{ opacity: 0.7 }}>No site attributes published yet.</div>
+              ) : (
+                <div className="cmom-device-card-details">
+                  {attributeRows.map(row => (
+                    <React.Fragment key={row.label}>
+                      <span className="cmom-label">{row.label}:</span>
+                      <span>{row.value}</span>
+                    </React.Fragment>
+                  ))}
+                </div>
+              ),
+          },
+          // One resizable panel per channel (rather than one "Level / Velocity
+          // / Flow" panel holding all three charts in a fixed-size CSS grid)
+          // so each chart's own card can be dragged/resized independently,
+          // and the chart itself (via TrendPanel's fillHeight) grows to fill
+          // whatever size that card is given — horizontally or vertically —
+          // instead of staying a fixed content size inside a shared card.
+          ...orderedChannels.map((c, i) => {
             const sqlChannel = sqlBaseline?.channels.find(ch => ch.channelId === c.id)
             const sqlBaselineText =
               sqlChannel && sqlChannel.baselineMean !== null
@@ -185,88 +259,91 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
                 : sqlBaseline?.configured
                   ? 'not available for this site'
                   : undefined
-            return (
-              <TrendPanel
-                key={c.id}
-                title={c.label}
-                node={c.node!}
-                dotPath="Value"
-                unit={c.unit}
-                sqlBaselineText={sqlBaselineText}
-                range={c.key === 'level' && pipeDiameterValue !== undefined ? [0, pipeDiameterValue] : undefined}
-              />
-            )
-          })}
-        </div>
-      )}
+            const panel: PanelSpec = {
+              id: `channel-${c.id}`,
+              title: c.unit ? `${c.label} (${c.unit})` : c.label,
+              defaultLayout: { x: (i % 3) * 4, y: ROW1_H + Math.floor(i / 3) * ROW2_H, w: 4, h: ROW2_H },
+              content: (
+                <TrendPanel
+                  title={c.label}
+                  node={c.node!}
+                  dotPath="Value"
+                  unit={c.unit}
+                  sqlBaselineText={sqlBaselineText}
+                  range={c.key === 'level' && pipeDiameterValue !== undefined ? [0, pipeDiameterValue] : undefined}
+                  timeRangeOptions={FLOW_CHANNEL_TIME_RANGE_OPTIONS}
+                  defaultTimeRange={FLOW_CHANNEL_DEFAULT_TIME_RANGE}
+                  fillHeight
+                  bare
+                />
+              ),
+            }
+            return panel
+          }),
+          {
+            id: 'sql-history',
+            title: 'Trend vs. CHA baseline (SQL history)',
+            defaultLayout: { x: 8, y: 0, w: 4, h: ROW1_H },
+            autoHeight: true,
+            content: (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                  {HISTORY_RANGE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.hours}
+                      type="button"
+                      onClick={() => setHistoryHours(opt.hours)}
+                      style={{
+                        padding: '2px 10px',
+                        fontSize: 12,
+                        borderRadius: 'var(--cmom-radius-sm, 4px)',
+                        border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
+                        backgroundColor: opt.hours === historyHours ? 'var(--cmom-accent, #1976d2)' : 'transparent',
+                        color: opt.hours === historyHours ? '#fff' : 'inherit',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {history && !history.configured ? (
+                  <div style={{ opacity: 0.7, fontSize: 13 }}>SQL reporting isn&apos;t configured on this server.</div>
+                ) : (
+                  <div className="cmom-trend-grid">
+                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
+                      <FlowTrendChart
+                        title="Flow"
+                        unit="MGD"
+                        points={history?.points ?? []}
+                        channel={{ value: 'flow', mean: 'flowMean', stdDev: 'flowStdDev', alarm: 'flowAlarm' }}
+                      />
+                    </div>
+                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
+                      <FlowTrendChart
+                        title="Level"
+                        unit="in"
+                        points={history?.points ?? []}
+                        channel={{ value: 'level', mean: 'levelMean', stdDev: 'levelStdDev', alarm: 'levelAlarm' }}
+                      />
+                    </div>
+                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
+                      <FlowTrendChart
+                        title="Velocity"
+                        unit="fps"
+                        points={history?.points ?? []}
+                        channel={{ value: 'velocity', mean: 'velocityMean', stdDev: 'velocityStdDev', alarm: 'velocityAlarm' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ),
+          },
+        ]
 
-      <h3>Trend vs. CHA baseline (SQL history)</h3>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-        {HISTORY_RANGE_OPTIONS.map(opt => (
-          <button
-            key={opt.hours}
-            type="button"
-            onClick={() => setHistoryHours(opt.hours)}
-            style={{
-              padding: '2px 10px',
-              fontSize: 12,
-              borderRadius: 'var(--cmom-radius-sm, 4px)',
-              border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
-              backgroundColor: opt.hours === historyHours ? 'var(--cmom-accent, #1976d2)' : 'transparent',
-              color: opt.hours === historyHours ? '#fff' : 'inherit',
-              cursor: 'pointer',
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {history && !history.configured ? (
-        <div style={{ opacity: 0.7, fontSize: 13 }}>SQL reporting isn&apos;t configured on this server.</div>
-      ) : (
-        <div className="cmom-trend-grid">
-          <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-            <FlowTrendChart
-              title="Flow"
-              unit="MGD"
-              points={history?.points ?? []}
-              channel={{ value: 'flow', mean: 'flowMean', stdDev: 'flowStdDev', alarm: 'flowAlarm' }}
-            />
-          </div>
-          <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-            <FlowTrendChart
-              title="Level"
-              unit="in"
-              points={history?.points ?? []}
-              channel={{ value: 'level', mean: 'levelMean', stdDev: 'levelStdDev', alarm: 'levelAlarm' }}
-            />
-          </div>
-          <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-            <FlowTrendChart
-              title="Velocity"
-              unit="fps"
-              points={history?.points ?? []}
-              channel={{ value: 'velocity', mean: 'velocityMean', stdDev: 'velocityStdDev', alarm: 'velocityAlarm' }}
-            />
-          </div>
-        </div>
-      )}
-
-      {attributeRows.length > 0 && (
-        <div className="cmom-card" style={{ padding: 'var(--cmom-space-3, 12px)', marginTop: 'var(--cmom-space-4, 16px)' }}>
-          <div className="cmom-label" style={{ marginBottom: 'var(--cmom-space-2, 8px)' }}>
-            Site Attributes
-          </div>
-          <div className="cmom-device-card-details">
-            {attributeRows.map(row => (
-              <React.Fragment key={row.label}>
-                <span className="cmom-label">{row.label}:</span>
-                <span>{row.value}</span>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
+        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail" panels={panels} />
+      })()}
     </div>
   )
 }

@@ -8,6 +8,7 @@ import TopicPlot from '../TopicPlot'
 import { ChartActions } from './ChartActions'
 import { chartActions } from '../../actions'
 import { ChartParameters } from '../../reducers/Charts'
+import { hydrateMessageHistory } from '../../helper/hydrateTopicHistory'
 
 const throttle = require('lodash.throttle')
 
@@ -45,20 +46,45 @@ function useMessageSubscriptionToUpdate(treeNode?: q.TreeNode<any>) {
 
   function subscribeToMessageUpdates() {
     const throttledUpdate = throttle(() => setLastUpdate(treeNode ? treeNode.lastUpdate : 0), 300)
+    let cancelled = false
 
     if (treeNode) {
-      const newMessageHistory = ClearableMessageBuffer.fromMessageBuffer(treeNode.messageHistory)
-      newMessageHistory.setCapacity(500, 2 * 500 * 10000)
+      // `currentBuffer` is reassigned (not mutated) once hydration finishes
+      // below — amendMessageCallback closes over the variable itself, so it
+      // keeps appending to whichever buffer is current without needing to
+      // re-subscribe.
+      let currentBuffer = ClearableMessageBuffer.fromMessageBuffer(treeNode.messageHistory)
+      currentBuffer.setCapacity(500, 2 * 500 * 10000)
 
       amendMessageCallback = (message: q.Message) => {
-        newMessageHistory.add(message)
+        currentBuffer.add(message)
         throttledUpdate()
       }
       treeNode.onMessage.subscribe(amendMessageCallback)
-      setMessageHistory(newMessageHistory)
+      setMessageHistory(currentBuffer)
+
+      // Seed with persisted history from before this session, so the chart
+      // doesn't start empty on every restart (see MessageHistoryStore).
+      // hydrateMessageHistory merges into treeNode.messageHistory itself
+      // (picking up anything that arrived live on it since — e.g. retained
+      // messages — in the process), so re-clone from that afterward rather
+      // than trying to patch the buffer above in place.
+      hydrateMessageHistory(treeNode, treeNode.path()).then(added => {
+        if (!added || cancelled) {
+          return
+        }
+        currentBuffer = ClearableMessageBuffer.fromMessageBuffer(treeNode.messageHistory)
+        currentBuffer.setCapacity(500, 2 * 500 * 10000)
+        setMessageHistory(currentBuffer)
+        // Not throttledUpdate(): TopicPlot only notices a genuinely new
+        // lastUpdate value, and this is a one-off, not a stream of updates
+        // worth throttling.
+        setLastUpdate(Date.now())
+      })
     }
 
     return function cleanup() {
+      cancelled = true
       treeNode && treeNode.onMessage.unsubscribe(amendMessageCallback)
       setMessageHistory(undefined)
     }

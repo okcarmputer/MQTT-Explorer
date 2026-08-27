@@ -2,7 +2,7 @@ import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import { dashboardConfig, Severity } from './config'
 import { ChildTopic, useTopicChildren } from './useTopicChildren'
-import { collectAnomalyTypes, isEntryDisplayable, resolveEntrySeverity } from './anomalyTypeScan'
+import { collectAnomalyTypes, isEntryDisplayable, resolveEntryDescription, resolveEntrySeverity } from './anomalyTypeScan'
 
 export type DeviceType = 'Flow Monitor' | 'Pump Station'
 
@@ -23,6 +23,7 @@ export interface AnomalyEvent {
   anomalyType: string
   severity: Severity
   previousSeverity: Severity
+  description?: string
 }
 
 /**
@@ -60,6 +61,7 @@ function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceTyp
                 anomalyType: entry.label,
                 severity,
                 previousSeverity: prev,
+                description: resolveEntryDescription(entry),
               })
             }
           }
@@ -92,6 +94,7 @@ function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceTyp
               anomalyType: entry.label,
               severity: initialSeverity,
               previousSeverity: 'OK',
+              description: resolveEntryDescription(entry),
             })
           }
 
@@ -139,6 +142,7 @@ export interface CurrentAnomaly {
   anomalyType: string
   severity: Severity
   lastUpdate?: number
+  description?: string
 }
 
 /**
@@ -173,6 +177,7 @@ export function useCurrentAnomalies(flowDevices: ChildTopic[], pumpDevices: Chil
                 anomalyType: entry.label,
                 severity,
                 lastUpdate: entry.node.lastUpdate,
+                description: resolveEntryDescription(entry),
               })
             }
           })

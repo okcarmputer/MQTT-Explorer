@@ -12,6 +12,7 @@ import OpenAI from 'openai'
 import { AuthManager } from './AuthManager'
 import { ConnectionManager } from '../backend/src/index'
 import ConfigStorage from '../backend/src/ConfigStorage'
+import { MessageHistoryStore } from '../backend/src/Model/MessageHistoryStore'
 import { SocketIOServerEventBus } from '../events/EventSystem/SocketIOServerEventBus'
 import { Rpc } from '../events/EventSystem/Rpc'
 import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogRequest'
@@ -257,8 +258,10 @@ async function startServer() {
   const backendRpc = new Rpc(backendEvents)
 
   // Initialize connection manager
-  const connectionManager = new ConnectionManager(backendEvents)
+  const messageHistoryStore = new MessageHistoryStore(path.join(process.cwd(), 'data', 'message-history.json'))
+  const connectionManager = new ConnectionManager(backendEvents, messageHistoryStore)
   connectionManager.manageConnections()
+  messageHistoryStore.init(backendRpc).catch(error => console.error('[MessageHistoryStore] init failed:', error))
 
   // Initialize config storage
   const configStorage = new ConfigStorage(path.join(process.cwd(), 'data', 'settings.json'), backendRpc)

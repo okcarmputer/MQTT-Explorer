@@ -41,5 +41,9 @@ function domainForData(data: Array<Point>): [number, number] {
   if (min === max) {
     return [min - 0.5 * min, min + 0.5 * min]
   }
-  return [min, max]
+  // Pad a bit past the exact min/max so a boundary data point isn't drawn
+  // flush against the axis edge — without this, the line's stroke width and
+  // the point glyphs' radius visibly spill past the grid at the top/bottom.
+  const padding = (max - min) * 0.08
+  return [min - padding, max + padding]
 }

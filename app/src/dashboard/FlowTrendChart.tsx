@@ -72,7 +72,7 @@ export default function FlowTrendChart({ title, unit, points, channel }: Props) 
   }
 
   return (
-    <div style={{ width: '100%', height: 220, minWidth: 0 }}>
+    <div style={{ width: '100%', height: '100%', minHeight: 220, minWidth: 0 }}>
       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {title}
         {unit ? ` (${unit})` : ''}

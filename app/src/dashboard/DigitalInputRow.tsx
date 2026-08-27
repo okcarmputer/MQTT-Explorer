@@ -43,8 +43,21 @@ export default function DigitalInputRow({ label, node }: Props) {
         borderBottom: '1px solid var(--cmom-border, rgba(128,128,128,0.15))',
       }}
     >
-      <span style={{ fontFamily: 'monospace' }}>{label}</span>
-      <span style={{ flex: 1, marginLeft: 12, marginRight: 12, opacity: 0.8 }}>{json.AlarmDescription || '—'}</span>
+      {/* Some labels (their parenthesized Description) run quite long — e.g.
+          "High Wet Well Alarm (Level Controller)" — and used to squeeze the
+          alarm description into whatever thin sliver of the row was left,
+          wrapping it across two or three lines. Truncating the label with
+          an ellipsis (full text still available via title=) guarantees the
+          description always gets real room instead. */}
+      <span
+        style={{ fontFamily: 'monospace', flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        title={label}
+      >
+        {label}
+      </span>
+      <span style={{ flex: '1 1 auto', minWidth: '10em', marginLeft: 12, marginRight: 12, opacity: 0.8 }}>
+        {json.AlarmDescription || '—'}
+      </span>
       <SeverityBadge severity={severity} />
     </div>
   )

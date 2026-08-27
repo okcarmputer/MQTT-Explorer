@@ -1,4 +1,5 @@
 import { Base64Message } from './Model/Base64Message'
+import { MessageHistoryStore } from './Model/MessageHistoryStore'
 import { DataSource, MqttSource } from './DataSource'
 import {
   AddMqttConnection,
@@ -14,9 +15,11 @@ import { EventBusInterface } from '../../events/EventSystem/EventBusInterface'
 export class ConnectionManager {
   private connections: { [s: string]: DataSource<any> } = {}
   private backendEvents: EventBusInterface
+  private historyStore?: MessageHistoryStore
 
-  constructor(backendEvents: EventBusInterface) {
+  constructor(backendEvents: EventBusInterface, historyStore?: MessageHistoryStore) {
     this.backendEvents = backendEvents
+    this.historyStore = historyStore
   }
 
   private handleConnectionRequest = (event: AddMqttConnection) => {
@@ -53,6 +56,8 @@ export class ConnectionManager {
 
       let decoded_payload = null
       decoded_payload = Base64Message.fromBuffer(buffer)
+
+      this.historyStore?.record(connectionId, topic, decoded_payload.toUnicodeString(), Date.now())
 
       this.backendEvents.emit(messageEvent, {
         topic,

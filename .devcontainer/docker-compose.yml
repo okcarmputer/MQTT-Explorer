@@ -21,3 +21,11 @@ services:
       - '6080:6080'
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # Without a mount here, persistence_location's mosquitto.db would only
+      # live in the container's writable layer and still be lost whenever
+      # the devcontainer is rebuilt (not just on a plain restart) — this
+      # named volume is what actually makes `persistence true` durable.
+      - mosquitto-data:/mosquitto/data
+
+volumes:
+  mosquitto-data:

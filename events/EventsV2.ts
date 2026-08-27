@@ -49,6 +49,9 @@ export const RpcEvents = {
   getPumpStationWetWellInfo: {
     topic: 'sql/pump-station-wet-well-info',
   } as RpcEvent<PumpStationWetWellInfoRequest, PumpStationWetWellInfoResponse>,
+  getTopicHistory: {
+    topic: 'history/topic',
+  } as RpcEvent<TopicHistoryRequest, TopicHistoryResponse>,
 }
 
 // Type definitions
@@ -179,7 +182,10 @@ export interface PumpStationWetWellInfoRequest {
 }
 
 export interface PumpStationWetWellDimension {
-  shape: string | null
+  // 'cylinder' | 'rectangular' | null (unknown) — from the static OPC-serial
+  // dimensions table (src/wetWellDimensions.ts) when available, else parsed
+  // out of freeform Comments text.
+  shape: 'cylinder' | 'rectangular' | null
   dimensionName: string | null
   dimensionValue: number | null
   dimensionUnits: string | null
@@ -190,8 +196,12 @@ export interface PumpStationWetWellDimension {
   elevationAtBottom: number | null // SPUMPSTA_H.ElevationAtBottom
   material: string | null // SPUMPSTA_H.WetWellMaterial
   comments: string | null // SPUMPSTA_H.Comments — sometimes carries a freeform "X' dia X Y' deep" note
-  diameterFt: number | null // parsed out of comments, when present
-  depthFt: number | null // parsed out of comments, when present
+  diameterFt: number | null // static table first, else parsed out of comments
+  depthFt: number | null // static table first, else parsed out of comments
+  // Plan-view dimensions for rectangular wells only (static table); null for
+  // cylindrical/unknown wells.
+  lengthFt: number | null
+  widthFt: number | null
   currentLevelFt: number | null // live "Wet Well Level" analog reading
   levelLastSeenAt: string | null
 
@@ -215,6 +225,25 @@ export interface PumpStationWetWellInfoResponse {
   configured: boolean
   serial: string
   wetWell: PumpStationWetWellDimension | null
+}
+
+// Locally-persisted MQTT message history (see backend/src/Model/MessageHistoryStore.ts)
+// — lets a chart hydrate with values received before the current app
+// session (normally lost on restart, since messageHistory/RingBuffer only
+// ever held live in-memory data). `v` is the message payload's decoded
+// unicode string (not base64), matching Base64Message.toUnicodeString().
+export interface TopicHistoryRequest {
+  connectionId: string
+  topic: string
+}
+
+export interface TopicHistoryPoint {
+  t: number
+  v: string
+}
+
+export interface TopicHistoryResponse {
+  points: TopicHistoryPoint[]
 }
 
 // Dialog types (browser-compatible versions)

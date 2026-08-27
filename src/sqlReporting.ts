@@ -8,6 +8,7 @@ import {
   FlowMonitorPortDimension,
   PumpStationWetWellInfoResponse,
 } from '../events/EventsV2'
+import { getWetWellDimensions } from './wetWellDimensions'
 
 /**
  * Direct SQL Server reads for report-style data (baselines, historical
@@ -312,8 +313,45 @@ function parseDiameterAndDepthFt(comments: string | null): { diameterFt: number 
 }
 
 export async function getPumpStationWetWellInfo(serial: string): Promise<PumpStationWetWellInfoResponse> {
+  // The static shape/dimension table (src/wetWellDimensions.ts) is local
+  // data, not SQL-backed — it's available (and authoritative over the
+  // freeform-Comments regex parse) regardless of whether SQL reporting is
+  // configured for this process.
+  const staticDims = getWetWellDimensions(serial)
+
   if (!isSqlReportingConfigured()) {
-    return { configured: false, serial, wetWell: null }
+    return {
+      configured: false,
+      serial,
+      wetWell: staticDims
+        ? {
+            shape: staticDims.shape,
+            dimensionName: null,
+            dimensionValue: null,
+            dimensionUnits: null,
+            volumeGallons: null,
+            elevationAtBottom: null,
+            material: null,
+            comments: null,
+            diameterFt: staticDims.diameterFt,
+            depthFt: staticDims.depthFt,
+            lengthFt: staticDims.lengthFt,
+            widthFt: staticDims.widthFt,
+            currentLevelFt: null,
+            levelLastSeenAt: null,
+            facilityId: null,
+            facilityName: null,
+            stationType: null,
+            basin: null,
+            subBasin: null,
+            dryWellMaterial: null,
+            stationPumpCount: null,
+            stationDesignCapacity: null,
+            opcSerialNumber: null,
+            opcStationName: null,
+          }
+        : null,
+    }
   }
 
   const connectedPool = await getPool()
@@ -321,16 +359,23 @@ export async function getPumpStationWetWellInfo(serial: string): Promise<PumpSta
 
   const row = result.recordset[0]
   if (!row) {
-    return { configured: true, serial, wetWell: null }
+    return {
+      configured: true,
+      serial,
+      wetWell: null,
+    }
   }
 
-  const { diameterFt, depthFt } = parseDiameterAndDepthFt(row.StationComments)
+  const parsed = parseDiameterAndDepthFt(row.StationComments)
+  const shape = staticDims?.shape ?? null
+  const diameterFt = staticDims?.diameterFt ?? parsed.diameterFt
+  const depthFt = staticDims?.depthFt ?? parsed.depthFt
 
   return {
     configured: true,
     serial,
     wetWell: {
-      shape: null,
+      shape,
       dimensionName: null,
       dimensionValue: null,
       dimensionUnits: null,
@@ -340,6 +385,8 @@ export async function getPumpStationWetWellInfo(serial: string): Promise<PumpSta
       comments: row.StationComments,
       diameterFt,
       depthFt,
+      lengthFt: staticDims?.lengthFt ?? null,
+      widthFt: staticDims?.widthFt ?? null,
       currentLevelFt: row.CurrentLevelFt,
       levelLastSeenAt: row.LevelLastSeenAt ? new Date(row.LevelLastSeenAt).toISOString() : null,
       facilityId: row.FacilityID !== undefined && row.FacilityID !== null ? String(row.FacilityID) : null,

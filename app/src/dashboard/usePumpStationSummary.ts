@@ -56,7 +56,11 @@ function isNonZero(value: unknown): boolean {
   return value !== undefined && value !== null && value !== '' && value !== 0 && value !== '0'
 }
 
-function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
+// Exported (not just used internally by the hook below) so callers that
+// need a one-off, non-reactive read — e.g. building search text for every
+// row in a list without calling a hook per row — can reuse the same field
+// extraction instead of duplicating it.
+export function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
   const unitStatusNode = deviceNode.edges['UnitStatus']?.target
   const unitStatus = readGroupFields(unitStatusNode)
 
@@ -128,5 +132,31 @@ export function usePumpStationSummary(deviceNode: q.TreeNode<any> | undefined): 
   }
 
   return buildSummary(deviceNode)
+}
+
+/**
+ * Live "Wet Well Level" analog reading, in feet, from a station's own
+ * summary — the same live-MQTT fallback PumpStationDetail uses for the wet
+ * well gauge's current level whenever the SQL-sourced level isn't
+ * available. Pulled out here so the detail page and the compact list-card
+ * gauge (SimpleDeviceCard's mini WetWellTankGauge) compute it identically
+ * instead of two copies of the same unit-conversion logic drifting apart.
+ */
+export function liveWetWellLevelFt(summary: PumpStationSummary): number | null {
+  const levelInput =
+    summary.analogInputs.find(a => a.label.toLowerCase().includes('wet well level')) ??
+    summary.analogInputs.find(a => a.label.toLowerCase().includes('level'))
+  if (!levelInput) {
+    return null
+  }
+  const numeric = Number(levelInput.value)
+  if (Number.isNaN(numeric)) {
+    return null
+  }
+  const unit = (levelInput.unit || '').trim().toLowerCase()
+  // The device's own ScaledUnits — convert inches to feet; anything else
+  // (feet, or no unit published) is assumed to already be feet, matching
+  // the SQL side's un-converted TRY_CAST(Value AS FLOAT).
+  return unit.startsWith('in') ? numeric / 12 : numeric
 }
 

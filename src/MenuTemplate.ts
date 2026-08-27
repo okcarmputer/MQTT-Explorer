@@ -74,40 +74,68 @@ const editMenu: MenuItemConstructorOptions = {
   ],
 }
 
+function zoomIn() {
+  const window = BrowserWindow.getFocusedWindow()
+  if (window) {
+    const zoom = window.webContents.getZoomFactor()
+    window.webContents.setZoomFactor(Math.min(zoom + 0.1, 3.0))
+  }
+}
+
+function zoomOut() {
+  const window = BrowserWindow.getFocusedWindow()
+  if (window) {
+    const zoom = window.webContents.getZoomFactor()
+    window.webContents.setZoomFactor(Math.max(zoom - 0.1, 0.3))
+  }
+}
+
+function resetZoom() {
+  const window = BrowserWindow.getFocusedWindow()
+  if (window) {
+    window.webContents.setZoomFactor(1)
+  }
+}
+
 const viewMenu: MenuItemConstructorOptions = {
   label: 'View',
   submenu: [
     {
       label: 'Default size',
       accelerator: 'CmdOrCtrl+0',
-      click: () => {
-        const window = BrowserWindow.getFocusedWindow()
-        if (window) {
-          window.webContents.setZoomFactor(1)
-        }
-      },
+      click: resetZoom,
     },
     {
       label: 'Increase size',
-      accelerator: 'CmdOrCtrl+Plus',
-      click: () => {
-        const window = BrowserWindow.getFocusedWindow()
-        if (window) {
-          const zoom = window.webContents.getZoomFactor()
-          window.webContents.setZoomFactor(Math.min(zoom + 0.1, 2.0))
-        }
-      },
+      // 'CmdOrCtrl+Plus' alone only fires when Shift is literally held (most
+      // layouts need Shift to type '+') — 'CmdOrCtrl+=' is the unshifted key
+      // people actually press, and is what browsers bind for zoom-in, so
+      // register both plus the numpad key rather than relying on one string.
+      accelerator: 'CmdOrCtrl+=',
+      click: zoomIn,
+    },
+    {
+      label: 'Increase size (numpad)',
+      accelerator: 'CmdOrCtrl+numadd',
+      visible: false,
+      click: zoomIn,
+    },
+    {
+      label: 'Increase size (shift)',
+      accelerator: 'CmdOrCtrl+Shift+=',
+      visible: false,
+      click: zoomIn,
     },
     {
       label: 'Reduce size',
       accelerator: 'CmdOrCtrl+-',
-      click: () => {
-        const window = BrowserWindow.getFocusedWindow()
-        if (window) {
-          const zoom = window.webContents.getZoomFactor()
-          window.webContents.setZoomFactor(Math.max(zoom - 0.1, 0.5))
-        }
-      },
+      click: zoomOut,
+    },
+    {
+      label: 'Reduce size (numpad)',
+      accelerator: 'CmdOrCtrl+numsub',
+      visible: false,
+      click: zoomOut,
     },
   ],
 }

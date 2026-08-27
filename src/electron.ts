@@ -1,6 +1,7 @@
 import * as log from 'electron-log'
 import * as path from 'path'
 import ConfigStorage from '../backend/src/ConfigStorage'
+import { MessageHistoryStore } from '../backend/src/Model/MessageHistoryStore'
 import { app, BrowserWindow, Menu, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { ConnectionManager } from '../backend/src/index'
@@ -115,12 +116,15 @@ app.whenReady().then(() => {
       return { configured: true, serial, wetWell: null }
     }
   })
+
+  messageHistoryStore.init(backendRpc).catch(error => console.error('[MessageHistoryStore] init failed:', error))
 })
 
 autoUpdater.logger = log
 log.info('App starting...')
 
-const connectionManager = new ConnectionManager(backendEvents)
+const messageHistoryStore = new MessageHistoryStore(path.join(app.getPath('userData'), 'message-history.json'))
+const connectionManager = new ConnectionManager(backendEvents, messageHistoryStore)
 connectionManager.manageConnections()
 
 const configStorage = new ConfigStorage(path.join(app.getPath('userData'), 'settings.json'), backendRpc)
@@ -200,6 +204,10 @@ app.on('ready', () => {
   if (shouldAutoUpdate(buildOptions)) {
     handleAutoUpdate()
   }
+})
+
+app.on('before-quit', () => {
+  messageHistoryStore.destroy().catch(error => console.error('[MessageHistoryStore] flush on quit failed:', error))
 })
 
 // Quit when all windows are closed.

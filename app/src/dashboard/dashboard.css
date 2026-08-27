@@ -173,14 +173,17 @@
   font-size: 16px;
 }
 
-/* The pipe/wet-well gauge is a front-facing visual, not a stat tile — its
-   own resizable square, not a panel spanning the full row width. */
+/* The pipe/wet-well gauge lives inside a PanelGrid card now (see
+   FlowMonitorDetail/PumpStationDetail), which already owns drag-to-resize —
+   this used to also pin the card to a fixed 200px width with its own
+   "resize: both" handle, which capped the gauge at a small fixed size no
+   matter how big its PanelGrid panel was made. Fill the panel instead. */
 .cmom-dashboard .cmom-gauge-card {
-  resize: both;
-  overflow: auto;
+  width: 100%;
+  height: 100%;
   min-width: 140px;
   min-height: 180px;
-  width: 200px;
+  box-sizing: border-box;
 }
 
 /* Value text (big numbers/readings) scales down with the card instead of
@@ -242,26 +245,16 @@
 }
 
 /*
- * Trend graphs (TrendPanel/FlowTrendChart): a fixed 4-up row so each chart
- * is 25% of the row's width, collapsing to fewer columns only when the
- * viewport is too narrow for that to stay usable.
+ * Trend graphs (TrendPanel/FlowTrendChart): cards are sized to their own
+ * content (a fixed-height chart, not stretched to fill a row) and the grid
+ * wraps as many as fit a row at that natural width — no forced 4-up
+ * stretching, which left wide empty space beside/below a chart that didn't
+ * need the full column/row it was being stretched into.
  */
 .cmom-dashboard .cmom-trend-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, max-content));
   gap: var(--cmom-space-2);
-}
-
-@media (max-width: 1100px) {
-  .cmom-dashboard .cmom-trend-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .cmom-dashboard .cmom-trend-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .cmom-dashboard code {

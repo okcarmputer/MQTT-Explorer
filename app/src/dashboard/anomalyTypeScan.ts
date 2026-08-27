@@ -92,6 +92,29 @@ export function resolveEntrySeverity(entry: AnomalyTypeEntry): Severity {
 }
 
 /**
+ * Human-readable description text for an anomaly entry, when the source
+ * actually carries one — a pump-station digital input's own AlarmDescription/
+ * Description field (real free text a technician wrote), or, for a flow
+ * monitor channel, the raw `.../anomaly` topic payload itself (usually just
+ * the severity keyword — see severityFromPayload — but shown verbatim in
+ * case a given site's detector publishes more than that).
+ */
+export function resolveEntryDescription(entry: AnomalyTypeEntry): string | undefined {
+  if (entry.anomalyNode) {
+    const payload = entry.anomalyNode.message?.payload?.toUnicodeString()?.trim()
+    return payload || undefined
+  }
+
+  const json = readJson(entry.node)
+  if ('AlarmDescription' in json || 'Description' in json) {
+    const description = (json.AlarmDescription || json.Description || '').trim()
+    return description || undefined
+  }
+
+  return undefined
+}
+
+/**
  * Same display filters the detail views apply (skip empty/"Spare" digital
  * inputs, skip unnamed/"Channel"-labeled analog inputs) — so the fleet
  * rollup and Anomalies feed don't count noise the detail views themselves hide.

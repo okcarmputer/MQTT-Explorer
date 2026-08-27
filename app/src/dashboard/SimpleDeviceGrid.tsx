@@ -5,16 +5,28 @@ export interface SimpleDeviceRow {
   key: string
   severity: Severity
   lastUpdate: number
+  // Lowercased, space-joined blob of every field the caller wants this row
+  // searchable by (serial/site id, description, location, name, ...) — kept
+  // as a single opaque string rather than a list of fields so this component
+  // doesn't need to know what a pump station or flow monitor even is. Falls
+  // back to `key` alone when a caller doesn't build one.
+  searchText?: string
 }
 
 interface Props<T extends SimpleDeviceRow> {
   devices: T[]
   keyLabel: string
+  // Shown in the search input's placeholder in place of keyLabel, e.g.
+  // "serial, description, location" — falls back to keyLabel.
+  searchLabel?: string
   // Render-prop rather than a fixed card shape, so callers that need extra
   // per-row data (e.g. Pump Stations' Unit Status subtitle, which needs its
   // own hook call per row) control the card fully instead of this component
   // guessing at a one-size-fits-all card.
   renderCard: (row: T) => React.ReactNode
+  // Extra controls shown in the filter row, right-aligned before the count
+  // (e.g. Pump Stations/Flow Monitors' "Missing Attributes" button).
+  headerActions?: React.ReactNode
 }
 
 /**
@@ -23,7 +35,7 @@ interface Props<T extends SimpleDeviceRow> {
  * RecentAnomaliesWidget uses, just reused here instead of a bespoke layout
  * per tab.
  */
-export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, keyLabel, renderCard }: Props<T>) {
+export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, keyLabel, searchLabel, renderCard, headerActions }: Props<T>) {
   const [textFilter, setTextFilter] = React.useState('')
   const [severityFilter, setSeverityFilter] = React.useState<Severity | 'All'>('All')
 
@@ -31,7 +43,7 @@ export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, k
     () =>
       devices.filter(row => {
         if (severityFilter !== 'All' && row.severity !== severityFilter) return false
-        if (textFilter && !row.key.toLowerCase().includes(textFilter.toLowerCase())) return false
+        if (textFilter && !(row.searchText ?? row.key).toLowerCase().includes(textFilter.toLowerCase())) return false
         return true
       }),
     [devices, textFilter, severityFilter]
@@ -41,7 +53,7 @@ export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, k
     <div style={{ padding: 'var(--cmom-space-4)', height: '100%', overflow: 'auto', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', gap: 'var(--cmom-space-3)', marginBottom: 'var(--cmom-space-4)', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
-          placeholder={`Filter by ${keyLabel}`}
+          placeholder={`Filter by ${searchLabel ?? keyLabel}`}
           value={textFilter}
           onChange={e => setTextFilter(e.target.value)}
           style={{ padding: 6, width: 220, borderRadius: 'var(--cmom-radius-sm)', border: '1px solid var(--cmom-border-strong)' }}
@@ -54,9 +66,12 @@ export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, k
             </option>
           ))}
         </select>
-        <span className="cmom-label" style={{ marginLeft: 'auto' }}>
-          {filtered.length} of {devices.length}
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--cmom-space-3)', alignItems: 'center' }}>
+          {headerActions}
+          <span className="cmom-label">
+            {filtered.length} of {devices.length}
+          </span>
+        </div>
       </div>
 
       {devices.length === 0 ? (
