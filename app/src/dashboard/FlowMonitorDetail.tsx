@@ -9,7 +9,10 @@ import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
 import { formatFlowPortInfo, extractDiameter, readPortsForNode } from './useFlowPortInfo'
 import { flowChannels } from './config'
 import { humanizeKey } from './useFlowSiteInfo'
+import { useManholeInfo } from './useManholeInfo'
 import PipeGauge from './widgets/PipeGauge'
+import ManholeGauge from './widgets/ManholeGauge'
+import ManholeInfoCard from './widgets/ManholeInfoCard'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
 
 const HISTORY_RANGE_OPTIONS = [
@@ -38,6 +41,7 @@ interface Props {
 
 export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Props) {
   const [tick, setTick] = React.useState(0)
+  const [manholeView, setManholeView] = React.useState(false)
 
   React.useEffect(() => {
     const rerender = () => setTick(t => t + 1)
@@ -98,6 +102,17 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
   const siteLocationKey = siteInfoKeys.find(k => k.toLowerCase().includes('location'))
   const siteName = siteNameKey ? siteInfo[siteNameKey] : undefined
   const siteLocation = siteLocationKey ? siteInfo[siteLocationKey] : undefined
+
+  // The manhole/flow-meter table (manholeData.ts) joins on flowmeterid,
+  // which lines up with site_info's own "NAME" field (e.g. "FM250-16") —
+  // NOT this site's MQTT key/deviceKey (e.g. "15223"), an internal ID the
+  // table has no concept of. "NAME" specifically, not the same loose
+  // "includes('name')" match siteNameKey above uses, since some sites also
+  // publish a "CustomerName" field that would otherwise win that match
+  // first. deviceKey is still passed as a second candidate in case a site's
+  // key happens to already be in the table's site-number format.
+  const flowMeterNameKey = siteInfoKeys.find(k => k.toLowerCase() === 'name')
+  const manholeInfo = useManholeInfo([flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
 
   // Pulled directly via SQL (bypasses MQTT entirely) — see
   // Anomaly_Detection/DASHBOARD_INTEGRATION_INSTRUCTIONS.md Part 1 for the
@@ -184,15 +199,24 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
       </h2>
 
       {(() => {
-        // Row 1 (Pipe / Site Attributes / Trend vs. baseline) and row 2
-        // (one equal-sized card per Level/Velocity/Flow channel) — three
-        // equal columns each, matching the reference layout. Row heights are
+        // Row 1: Pipe | (Site Attributes over Trend vs. baseline) | Manhole
+        // Info — three equal-width columns, the middle one internally split
+        // into two stacked cards. Row 2 is one equal-sized card per
+        // Level/Velocity/Flow channel, three equal columns. Row heights are
         // shared constants (ROW1_H/ROW2_H) rather than per-panel numbers so
         // every row-1 card starts the same height as its row-1 siblings, and
         // likewise for row 2 — "each card the same size" by construction,
         // not by coincidence.
         const ROW1_H = 17
         const ROW2_H = 16
+        // Row 1's middle column stacks Site Attributes over Trend vs.
+        // Baseline (rather than each taking its own full-height column) so
+        // Manhole Info can be its own third column at the same full ROW1_H
+        // height as Pipe — matching the reference layout. autoHeight
+        // corrects each of these three guesses to real content height once
+        // mounted (see PanelGrid); they just need to roughly split ROW1_H.
+        const SITE_ATTRIBUTES_H = 9
+        const SQL_HISTORY_H = ROW1_H - SITE_ATTRIBUTES_H
         // Bottom row in this fixed order (matching the reference image)
         // rather than flowChannels' own declaration order.
         const channelOrder = ['level', 'flow', 'velocity']
@@ -200,34 +224,81 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
           (a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key)
         )
 
+        // if/else rather than a chained ternary — a 3-way ternary here reads
+        // worse than the equivalent explicit branches.
+        let pipeContent: React.ReactNode
+        if (manholeView) {
+          pipeContent = (
+            <ManholeGauge
+              title="Level"
+              manholeDepthFt={manholeInfo?.manholeDepthFt ?? null}
+              pipeDiameterValue={pipeDiameterValue ?? null}
+              pipeDiameterUnit={pipeDiameterUnit}
+              levelValue={levelReadingValue ?? null}
+              levelUnit={levelChannelConfig?.unit || 'in'}
+            />
+          )
+        } else if (pipeDiameterValue !== undefined && levelReadingValue !== undefined && !Number.isNaN(levelReadingValue)) {
+          pipeContent = (
+            <PipeGauge
+              title="Level"
+              diameterValue={pipeDiameterValue}
+              diameterUnit={pipeDiameterUnit}
+              levelValue={levelReadingValue}
+              levelUnit={levelChannelConfig?.unit || 'in'}
+            />
+          )
+        } else {
+          pipeContent = (
+            <div style={{ opacity: 0.7 }}>
+              {pipeDiameterValue === undefined
+                ? 'No pipe diameter published (ports topic) or configured in SQL for this site yet.'
+                : 'No Level reading yet.'}
+            </div>
+          )
+        }
+
         const panels: PanelSpec[] = [
           {
             id: 'pipe',
             title: 'Pipe',
             defaultLayout: { x: 0, y: 0, w: 4, h: ROW1_H },
-            content:
-              pipeDiameterValue === undefined || levelReadingValue === undefined || Number.isNaN(levelReadingValue) ? (
-                <div style={{ opacity: 0.7 }}>
-                  {pipeDiameterValue === undefined
-                    ? 'No pipe diameter published (ports topic) or configured in SQL for this site yet.'
-                    : 'No Level reading yet.'}
-                </div>
-              ) : (
-                <div style={{ height: '100%' }}>
-                  <PipeGauge
-                    title="Level"
-                    diameterValue={pipeDiameterValue}
-                    diameterUnit={pipeDiameterUnit}
-                    levelValue={levelReadingValue}
-                    levelUnit={levelChannelConfig?.unit || 'in'}
-                  />
-                </div>
-              ),
+            content: (
+              <div style={{ height: '100%', position: 'relative' }}>
+                {/* Top-right toggle between the plain pipe-fill view and the
+                    "Man Hole View" (pipe drawn to scale inside the manhole
+                    it sits in) — the level sensor reads from the top of the
+                    manhole, not the pipe, so a level past the pipe's own
+                    diameter is a real, above-pipe reading (surcharge), which
+                    PipeGauge's percent-of-pipe view can't show. */}
+                <button
+                  type="button"
+                  onClick={() => setManholeView(v => !v)}
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    zIndex: 1,
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    borderRadius: 'var(--cmom-radius-sm, 4px)',
+                    border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
+                    background: 'var(--cmom-surface-elevated, #1c2229)',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {manholeView ? 'Pipe View' : 'Man Hole View'}
+                </button>
+
+                {pipeContent}
+              </div>
+            ),
           },
           {
             id: 'site-attributes',
             title: 'Site Attributes',
-            defaultLayout: { x: 4, y: 0, w: 4, h: ROW1_H },
+            defaultLayout: { x: 4, y: 0, w: 4, h: SITE_ATTRIBUTES_H },
             autoHeight: true,
             content:
               attributeRows.length === 0 ? (
@@ -242,6 +313,13 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
                   ))}
                 </div>
               ),
+          },
+          {
+            id: 'manhole-info',
+            title: 'Manhole Info',
+            defaultLayout: { x: 8, y: 0, w: 4, h: ROW1_H },
+            autoHeight: true,
+            content: <ManholeInfoCard info={manholeInfo} />,
           },
           // One resizable panel per channel (rather than one "Level / Velocity
           // / Flow" panel holding all three charts in a fixed-size CSS grid)
@@ -283,7 +361,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
           {
             id: 'sql-history',
             title: 'Trend vs. CHA baseline (SQL history)',
-            defaultLayout: { x: 8, y: 0, w: 4, h: ROW1_H },
+            defaultLayout: { x: 4, y: SITE_ATTRIBUTES_H, w: 4, h: SQL_HISTORY_H },
             autoHeight: true,
             content: (
               <>
@@ -342,7 +420,11 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
           },
         ]
 
-        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail" panels={panels} />
+        // Bumped from "cmom-layout-flow-monitor-detail" — Manhole Info's
+        // position/row-1 column split changed here, and PanelGrid's saved
+        // layout otherwise wins over new defaultLayout values for any panel
+        // id a user's browser already has a stored position for.
+        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v2" panels={panels} />
       })()}
     </div>
   )

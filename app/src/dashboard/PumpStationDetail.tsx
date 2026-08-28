@@ -261,7 +261,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           Serial: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
         </span>
         {Boolean(summary.unitStatus['Description'] || summary.unitStatus['Location']) && (
-          <span style={{ fontSize: '0.55em', fontWeight: 400, opacity: 0.75, textAlign: 'right' }}>
+          <span style={{ fontSize: '0.8em', fontWeight: 400, opacity: 0.75, textAlign: 'right' }}>
             {[summary.unitStatus['Description'], summary.unitStatus['Location']].filter(Boolean).join(' — ')}
           </span>
         )}
@@ -282,6 +282,15 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         const MIN_GRAPH_W = 3 // narrowest a graph card is allowed to get before wrapping to another row
         const GRAPH_SLOTS_FIRST_ROW = Math.floor((12 - COL_W) / MIN_GRAPH_W) // 3, next to the gauge
         const GRAPH_COLS_PER_FULL_ROW = Math.floor(12 / MIN_GRAPH_W) // 4, once the gauge's row is behind us
+
+        // With exactly one graph, the leftover width next to the gauge is
+        // wide enough to waste — instead of stretching one lone chart across
+        // it, give Pump Runtimes/Power & Temperature/Unit Status a stacked
+        // column of their own, sized to exactly match the graph's height.
+        // Digital Inputs and Wet Well Info then share row 2 side-by-side
+        // instead of each taking a full-width row of its own.
+        const singleGraph = analogInputs.length === 1
+        const RIGHT_COL_W = 3
 
         const analogCount = Math.max(analogInputs.length, 1) // placeholder counts as one slot
         const overflowCount = Math.max(0, analogCount - GRAPH_SLOTS_FIRST_ROW)
@@ -327,7 +336,13 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
 
         const analogPanels: PanelSpec[] = analogInputs.map((a, i) => {
           const scaledValueNode = a.node.edges['ScaledValue']?.target
-          const { x, y, w } = graphSlotLayout(i)
+          // Single-graph case: narrower than the general graphSlotLayout
+          // would give it (which stretches a lone graph across the whole
+          // 12 - COL_W remainder) — leave room on the right for the
+          // Pump Runtimes/Power & Temperature/Unit Status stack instead.
+          const { x, y, w } = singleGraph
+            ? { x: COL_W, y: 0, w: 12 - COL_W - RIGHT_COL_W }
+            : graphSlotLayout(i)
           const panel: PanelSpec = {
             id: `analog-${a.key}`,
             title: formatAnalogInputTitle(a.key, a.json.Description),
@@ -384,65 +399,47 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           ...analogInputsPlaceholder,
         ]
 
-        // Row 2 starts below every graph row from above — Wet Well Info,
-        // Unit Status, and everything else that used to compete for space
-        // in row 1 now always lands here instead.
-        let row2Y = graphRowsHeight
-
-        // Just a starting estimate — PanelGrid's autoHeight (this panel has
-        // it set below) measures the real rendered content once it mounts
-        // and corrects this to the actual height either way, so it doesn't
-        // need to be exact (the grid's minmax(130px,...) auto-fill columns
-        // depend on the panel's actual pixel width, which isn't known yet
-        // here) — just close enough that the pre-correction flash isn't
-        // dramatically wrong.
-        const wetWellInfoRows = wetWell ? Math.ceil((wetWell.comments ? 14 : 13) / 6) : 1
-        const wetWellInfoH = Math.min(20, Math.max(5, wetWellInfoRows * 2 + 3))
-        panels.push({
-          id: 'wet-well-info',
-          title: 'Wet Well Info',
-          defaultLayout: { x: 0, y: row2Y, w: 12, h: wetWellInfoH },
-          autoHeight: true,
-          content: !wetWell ? (
-            <div style={{ opacity: 0.7 }}>No GIS/OPC record found for this station.</div>
-          ) : (
-            <div
-              className="cmom-card-row"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-                gap: 8,
-                alignContent: 'start',
-              }}
-            >
-              <StatusField label="Facility ID" value={wetWell.facilityId} />
-              <StatusField label="Facility Name" value={wetWell.facilityName} />
-              <StatusField label="Station Type" value={wetWell.stationType} />
-              <StatusField label="Basin" value={wetWell.basin} />
-              <StatusField label="Sub-Basin" value={wetWell.subBasin} />
-              <StatusField label="Wet Well Material" value={wetWell.material} />
-              <StatusField label="Dry Well Material" value={wetWell.dryWellMaterial} />
-              <StatusField label="Pump Count" value={wetWell.stationPumpCount} />
-              <StatusField
-                label="Design Capacity"
-                value={wetWell.stationDesignCapacity !== null ? `${wetWell.stationDesignCapacity} gpm` : undefined}
-              />
-              <StatusField label="Elevation at Bottom" value={wetWell.elevationAtBottom} />
-              <StatusField label="OPC Serial Number" value={wetWell.opcSerialNumber} />
-              <StatusField label="OPC Station Name" value={wetWell.opcStationName} />
-              <StatusField
-                label="Level Last Seen"
-                value={wetWell.levelLastSeenAt ? new Date(wetWell.levelLastSeenAt).toLocaleString() : undefined}
-              />
-              {wetWell.comments && (
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <StatusField label="Comments" value={wetWell.comments} />
-                </div>
-              )}
-            </div>
-          ),
-        })
-        row2Y += wetWellInfoH
+        // Content for these cards is the same regardless of layout — only
+        // where/how big they're placed differs between the single-graph and
+        // general cases below.
+        const wetWellInfoContent = !wetWell ? (
+          <div style={{ opacity: 0.7 }}>No GIS/OPC record found for this station.</div>
+        ) : (
+          <div
+            className="cmom-card-row"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+              gap: 8,
+              alignContent: 'start',
+            }}
+          >
+            <StatusField label="Facility ID" value={wetWell.facilityId} />
+            <StatusField label="Facility Name" value={wetWell.facilityName} />
+            <StatusField label="Station Type" value={wetWell.stationType} />
+            <StatusField label="Basin" value={wetWell.basin} />
+            <StatusField label="Sub-Basin" value={wetWell.subBasin} />
+            <StatusField label="Wet Well Material" value={wetWell.material} />
+            <StatusField label="Dry Well Material" value={wetWell.dryWellMaterial} />
+            <StatusField label="Pump Count" value={wetWell.stationPumpCount} />
+            <StatusField
+              label="Design Capacity"
+              value={wetWell.stationDesignCapacity !== null ? `${wetWell.stationDesignCapacity} gpm` : undefined}
+            />
+            <StatusField label="Elevation at Bottom" value={wetWell.elevationAtBottom} />
+            <StatusField label="OPC Serial Number" value={wetWell.opcSerialNumber} />
+            <StatusField label="OPC Station Name" value={wetWell.opcStationName} />
+            <StatusField
+              label="Level Last Seen"
+              value={wetWell.levelLastSeenAt ? new Date(wetWell.levelLastSeenAt).toLocaleString() : undefined}
+            />
+            {wetWell.comments && (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <StatusField label="Comments" value={wetWell.comments} />
+              </div>
+            )}
+          </div>
+        )
 
         const unitStatusContent =
           unitStatusEntries.length === 0 ? (
@@ -461,86 +458,167 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
             </div>
           )
 
-        // These cards were sized to fill a tall fixed row regardless of how
-        // much they actually had to show, leaving a lot of empty card below
-        // the content — instead, size each from a rough estimate of its own
-        // content (row count), so the card starts close to content-height
-        // rather than needlessly tall. (react-grid-layout panels can't
-        // truly auto-size to content, so this is an estimate, not a hard
-        // guarantee for every field-count/width combination — still
-        // drag-resizable afterward like any other panel.)
-        const unitStatusRows = Math.max(1, Math.ceil(unitStatusEntries.length / 8))
-        const unitStatusH = Math.min(16, Math.max(4, unitStatusRows * 2 + 3))
-        panels.push({
-          id: 'unit-status',
-          title: 'Unit Status',
-          defaultLayout: { x: 0, y: row2Y, w: 12, h: unitStatusH },
-          autoHeight: true,
-          content: unitStatusContent,
-        })
-        row2Y += unitStatusH
-
-        const powerTempH = 5
-
-        panels.push(
-          {
-            id: 'power-temperature',
-            title: 'Power & Temperature',
-            defaultLayout: { x: 0, y: row2Y, w: 6, h: powerTempH },
-            autoHeight: true,
-            content: (
-              <div className="cmom-card-row">
-                {acPowerVoltsNode && <ValuePanel title="AC Power" node={acPowerVoltsNode} valuePath="value" unit="V" />}
-                {batteryVoltsNode && <ValuePanel title="Battery State" node={batteryVoltsNode} valuePath="value" unit="V" />}
-                {temperatureValueNode && <ValuePanel title="Temperature" node={temperatureValueNode} valuePath="value" />}
-              </div>
-            ),
-          },
-          {
-            id: 'pump-runtimes',
-            title: 'Pump Runtimes',
-            defaultLayout: { x: 6, y: row2Y, w: 6, h: powerTempH },
-            autoHeight: true,
-            content:
-              summary.pumpRuntimes.length === 0 ? (
-                <div style={{ opacity: 0.7 }}>No pump runtime data reported yet.</div>
-              ) : (
-                <div className="cmom-card-row">
-                  {summary.pumpRuntimes.map(r => (
-                    <div key={r.key} className="cmom-card" style={{ padding: '10px 12px' }}>
-                      <div className="cmom-label" style={{ marginBottom: 6 }}>
-                        {r.label}
-                      </div>
-                      <RuntimeClock label={`${r.label} today`} minutes={`${r.today} today / ${r.yesterday} yest.`} starts={r.hourlyStart} />
-                    </div>
-                  ))}
-                </div>
-              ),
-          },
-          {
-            // Full width (rather than sharing the row above with Power &
-            // Temperature/Pump Runtimes) — a Digital Inputs row's alarm
-            // description used to wrap across multiple lines whenever a
-            // label happened to be long (e.g. "High Wet Well Alarm (Level
-            // Controller)"), because half the page's width wasn't enough
-            // room left over for both. See DigitalInputRow.tsx for the
-            // matching label/description sizing fix.
-            id: 'digital-inputs',
-            title: 'Digital Inputs',
-            defaultLayout: { x: 0, y: row2Y + powerTempH, w: 12, h: Math.min(20, Math.max(4, digitalInputs.length + 2)) },
-            autoHeight: true,
-            content:
-              digitalInputs.length === 0 ? (
-                <div style={{ opacity: 0.7 }}>No active (non-spare) digital inputs configured.</div>
-              ) : (
-                <div style={{ border: '1px solid var(--cmom-border, rgba(128,128,128,0.15))', borderRadius: 'var(--cmom-radius-sm, 4px)' }}>
-                  {digitalInputs.map(d => (
-                    <DigitalInputRow key={d.key} label={`DigitalInputs/${d.key} (${d.json.Description})`} node={d.node} />
-                  ))}
-                </div>
-              ),
-          }
+        const powerTempContent = (
+          <div className="cmom-card-row">
+            {acPowerVoltsNode && <ValuePanel title="AC Power" node={acPowerVoltsNode} valuePath="value" unit="V" />}
+            {batteryVoltsNode && <ValuePanel title="Battery State" node={batteryVoltsNode} valuePath="value" unit="V" />}
+            {temperatureValueNode && <ValuePanel title="Temperature" node={temperatureValueNode} valuePath="value" />}
+          </div>
         )
+
+        const pumpRuntimesContent =
+          summary.pumpRuntimes.length === 0 ? (
+            <div style={{ opacity: 0.7 }}>No pump runtime data reported yet.</div>
+          ) : (
+            <div className="cmom-card-row">
+              {summary.pumpRuntimes.map(r => (
+                <div key={r.key} className="cmom-card" style={{ padding: '10px 12px' }}>
+                  <div className="cmom-label" style={{ marginBottom: 6 }}>
+                    {r.label}
+                  </div>
+                  <RuntimeClock label={`${r.label} today`} minutes={`${r.today} today / ${r.yesterday} yest.`} starts={r.hourlyStart} />
+                </div>
+              ))}
+            </div>
+          )
+
+        // A Digital Inputs row's alarm description used to wrap across
+        // multiple lines whenever a label happened to be long (e.g. "High
+        // Wet Well Alarm (Level Controller)") if given too little width —
+        // see DigitalInputRow.tsx for the matching label/description sizing
+        // fix that makes half-width (the single-graph layout) workable too.
+        const digitalInputsContent =
+          digitalInputs.length === 0 ? (
+            <div style={{ opacity: 0.7 }}>No active (non-spare) digital inputs configured.</div>
+          ) : (
+            <div style={{ border: '1px solid var(--cmom-border, rgba(128,128,128,0.15))', borderRadius: 'var(--cmom-radius-sm, 4px)' }}>
+              {digitalInputs.map(d => (
+                <DigitalInputRow key={d.key} diKey={d.key} name={d.json.Description} node={d.node} />
+              ))}
+            </div>
+          )
+
+        if (singleGraph) {
+          // Row 1's right column: Pump Runtimes / Power & Temperature / Unit
+          // Status stacked to exactly fill the graph's height (ROW1_H).
+          const stackX = 12 - RIGHT_COL_W
+          const stackH1 = Math.ceil(ROW1_H / 3)
+          const stackH2 = Math.ceil((ROW1_H - stackH1) / 2)
+          const stackH3 = ROW1_H - stackH1 - stackH2
+          panels.push(
+            {
+              id: 'pump-runtimes',
+              title: 'Pump Runtimes',
+              defaultLayout: { x: stackX, y: 0, w: RIGHT_COL_W, h: stackH1 },
+              content: pumpRuntimesContent,
+            },
+            {
+              id: 'power-temperature',
+              title: 'Power & Temperature',
+              defaultLayout: { x: stackX, y: stackH1, w: RIGHT_COL_W, h: stackH2 },
+              content: powerTempContent,
+            },
+            {
+              id: 'unit-status',
+              title: 'Unit Status',
+              defaultLayout: { x: stackX, y: stackH1 + stackH2, w: RIGHT_COL_W, h: stackH3 },
+              content: unitStatusContent,
+            }
+          )
+
+          // Row 2: Digital Inputs + Wet Well Info side-by-side instead of
+          // each stacked full-width.
+          const row2Y = ROW1_H
+          const digitalInputsH = Math.min(20, Math.max(5, digitalInputs.length + 2))
+          const wetWellInfoRows = wetWell ? Math.ceil((wetWell.comments ? 14 : 13) / 3) : 1
+          const wetWellInfoH = Math.min(20, Math.max(5, wetWellInfoRows * 2 + 3))
+          panels.push(
+            {
+              id: 'digital-inputs',
+              title: 'Digital Inputs',
+              defaultLayout: { x: 0, y: row2Y, w: 6, h: digitalInputsH },
+              autoHeight: true,
+              content: digitalInputsContent,
+            },
+            {
+              id: 'wet-well-info',
+              title: 'Wet Well Info',
+              defaultLayout: { x: 6, y: row2Y, w: 6, h: wetWellInfoH },
+              autoHeight: true,
+              content: wetWellInfoContent,
+            }
+          )
+        } else {
+          // Row 2 starts below every graph row from above — Wet Well Info,
+          // Unit Status, and everything else that used to compete for space
+          // in row 1 now always lands here instead.
+          let row2Y = graphRowsHeight
+
+          // Just a starting estimate — PanelGrid's autoHeight (this panel has
+          // it set below) measures the real rendered content once it mounts
+          // and corrects this to the actual height either way, so it doesn't
+          // need to be exact (the grid's minmax(130px,...) auto-fill columns
+          // depend on the panel's actual pixel width, which isn't known yet
+          // here) — just close enough that the pre-correction flash isn't
+          // dramatically wrong.
+          const wetWellInfoRows = wetWell ? Math.ceil((wetWell.comments ? 14 : 13) / 6) : 1
+          const wetWellInfoH = Math.min(20, Math.max(5, wetWellInfoRows * 2 + 3))
+          panels.push({
+            id: 'wet-well-info',
+            title: 'Wet Well Info',
+            defaultLayout: { x: 0, y: row2Y, w: 12, h: wetWellInfoH },
+            autoHeight: true,
+            content: wetWellInfoContent,
+          })
+          row2Y += wetWellInfoH
+
+          // These cards were sized to fill a tall fixed row regardless of how
+          // much they actually had to show, leaving a lot of empty card below
+          // the content — instead, size each from a rough estimate of its own
+          // content (row count), so the card starts close to content-height
+          // rather than needlessly tall. (react-grid-layout panels can't
+          // truly auto-size to content, so this is an estimate, not a hard
+          // guarantee for every field-count/width combination — still
+          // drag-resizable afterward like any other panel.)
+          const unitStatusRows = Math.max(1, Math.ceil(unitStatusEntries.length / 8))
+          const unitStatusH = Math.min(16, Math.max(4, unitStatusRows * 2 + 3))
+          panels.push({
+            id: 'unit-status',
+            title: 'Unit Status',
+            defaultLayout: { x: 0, y: row2Y, w: 12, h: unitStatusH },
+            autoHeight: true,
+            content: unitStatusContent,
+          })
+          row2Y += unitStatusH
+
+          const powerTempH = 5
+
+          panels.push(
+            {
+              id: 'power-temperature',
+              title: 'Power & Temperature',
+              defaultLayout: { x: 0, y: row2Y, w: 6, h: powerTempH },
+              autoHeight: true,
+              content: powerTempContent,
+            },
+            {
+              id: 'pump-runtimes',
+              title: 'Pump Runtimes',
+              defaultLayout: { x: 6, y: row2Y, w: 6, h: powerTempH },
+              autoHeight: true,
+              content: pumpRuntimesContent,
+            },
+            {
+              // Full width (rather than sharing the row above with Power &
+              // Temperature/Pump Runtimes) — see DigitalInputRow.tsx.
+              id: 'digital-inputs',
+              title: 'Digital Inputs',
+              defaultLayout: { x: 0, y: row2Y + powerTempH, w: 12, h: Math.min(20, Math.max(4, digitalInputs.length + 2)) },
+              autoHeight: true,
+              content: digitalInputsContent,
+            }
+          )
+        }
 
         return <PanelGrid storageKey="cmom-layout-pump-station-detail" panels={panels} />
       })()}

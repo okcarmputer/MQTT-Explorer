@@ -1,12 +1,16 @@
 import * as React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { connect } from 'react-redux'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import Overview from './Overview'
 import FlowMonitors from './FlowMonitors'
 import PumpStations from './PumpStations'
 import Anomalies from './Anomalies'
+import FleetAskPanel from './FleetAskPanel'
 import MqttStoreSync from './store/MqttStoreSync'
+import { AppState } from '../reducers'
+import * as q from '../../../backend/src/Model'
 import './dashboard.css'
 
 interface Props {
@@ -14,6 +18,7 @@ interface Props {
   paneDefaults: any
   connectionId?: string
   explorer: React.ReactNode
+  tree?: q.Tree<any>
 }
 
 // Flow Monitors and Pump Stations are routed (their rows link to
@@ -35,10 +40,11 @@ function routedTabForPath(pathname: string): number | null {
  * tree/MQTT view underneath is never remounted by nav switches — same
  * behavior as before this restructure, just laid out differently.
  */
-export default function DashboardTabs(props: Props) {
+function DashboardTabs(props: Props) {
   const location = useLocation()
   const navigate = useNavigate()
   const [localTab, setLocalTab] = React.useState(0)
+  const [askOpen, setAskOpen] = React.useState(false)
 
   const routedTab = routedTabForPath(location.pathname)
   const tab = routedTab !== null ? routedTab : localTab
@@ -94,7 +100,7 @@ export default function DashboardTabs(props: Props) {
     <div style={{ display: 'flex', height: '100vh', width: '100%' }}>
       <Sidebar activeIndex={tab} onSelect={handleSelect} />
       <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopBar />
+        <TopBar onAskClick={() => setAskOpen(true)} />
         <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
           <MqttStoreSync />
           {/*
@@ -123,8 +129,17 @@ export default function DashboardTabs(props: Props) {
           </div>
           {/* Not rendered at all until first visited (see hasVisitedExplorer above); stays mounted forever after that so the tree/MQTT view underneath is never remounted by nav switches. */}
           <div style={{ ...paneStyle(4), position: 'absolute', inset: 0 }}>{hasVisitedExplorer ? props.explorer : null}</div>
+          {/* Transient drawer, not a tab/route — only mounted while open, so
+              it doesn't hold an LLM chat/idle timers alive in the background. */}
+          {askOpen && <FleetAskPanel tree={props.tree} onClose={() => setAskOpen(false)} />}
         </div>
       </div>
     </div>
   )
 }
+
+const mapStateToProps = (state: AppState) => ({
+  tree: state.connection.tree,
+})
+
+export default connect(mapStateToProps)(DashboardTabs)

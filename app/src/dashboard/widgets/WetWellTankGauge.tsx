@@ -68,7 +68,11 @@ export default function WetWellTankGauge({
   // Rectangular wells get extra headroom (isoDy pushes the top face upward)
   // and the box is shifted left (see cx below) to leave room for the
   // isometric offset (isoDx) on the right without clipping.
-  const tankTop = isRectangular ? 30 : 18
+  // Rectangular wells: isoDy (below) pushes the top isometric face upward by
+  // as much as 34px past tankTop — a bare 30px offset let that face clip
+  // above the SVG viewBox's top edge (y=0). 46 leaves ~12px of margin for
+  // the worst case, which also reads as "the wet well moved down a bit".
+  const tankTop = isRectangular ? 46 : 18
   const tankBottom = height - 26
   const tankHeight = tankBottom - tankTop
   const ellipseRy = 12

@@ -15,6 +15,10 @@ interface Props {
   }
 }
 
+interface TopBarProps {
+  onAskClick?: () => void
+}
+
 /**
  * Connect/Disconnect toggle — moved here from the old TitleBar banner
  * (removed; this dashboard header is now the only place these live). Uses
@@ -65,7 +69,7 @@ const ConnectedConnectionControls = connect(
  * per-message latency measurement, no auth/role system), so they're
  * omitted rather than faked.
  */
-export default function TopBar() {
+export default function TopBar({ onAskClick }: TopBarProps) {
   const connected = useMqttStore(s => s.connected)
   const health = useMqttStore(s => s.health)
   const host = useMqttStore(s => s.host)
@@ -111,6 +115,15 @@ export default function TopBar() {
       <div className="cmom-topbar-item" style={{ color: 'var(--cmom-text-muted)' }}>
         <PauseButton />
       </div>
+
+      {onAskClick && (
+        <>
+          <div className="cmom-topbar-divider" />
+          <button type="button" className="cmom-topbar-button" onClick={onAskClick}>
+            Ask the Fleet
+          </button>
+        </>
+      )}
 
       <ConnectedConnectionControls />
     </div>
