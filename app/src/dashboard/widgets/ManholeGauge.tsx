@@ -4,8 +4,9 @@ import { severityColors } from '../config'
 
 interface Props {
   title: string
-  // Feet — the manhole's own physical depth (from manholeData.ts /
-  // useManholeInfo), the 0-100% reference for this gauge, same role
+  // Feet — the manhole's own physical depth (from useManholeInfo, backed by
+  // the anomaly-detection repo's published manhole_info data), the 0-100%
+  // reference for this gauge, same role
   // depthFt plays in WetWellTankGauge.
   manholeDepthFt: number | null
   // The pipe's real diameter and the live level reading, both in the same

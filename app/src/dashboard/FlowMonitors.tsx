@@ -19,7 +19,7 @@ interface Props {
   tree?: q.Tree<any>
 }
 
-function FlowMonitorDetailRoute({ devices }: { devices: ChildTopic[] }) {
+function FlowMonitorDetailRoute({ devices, tree }: { devices: ChildTopic[]; tree?: q.Tree<any> }) {
   const { siteId } = useParams<{ siteId: string }>()
   const navigate = useNavigate()
   const device = devices.find(d => d.key === siteId)
@@ -39,6 +39,7 @@ function FlowMonitorDetailRoute({ devices }: { devices: ChildTopic[] }) {
     <FlowMonitorDetail
       deviceKey={device.key}
       deviceNode={device.node}
+      tree={tree}
       onBack={() => navigate('/flow-monitors')}
     />
   )
@@ -221,7 +222,7 @@ function FlowMonitors({ tree }: Props) {
       <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} ports={ports} />} />
       <Route path="/flow-monitors/data-channel-types" element={<DataChannelTypes />} />
       <Route path="/flow-monitors/missing-attributes" element={<FlowMonitorMissingAttributes />} />
-      <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} />} />
+      <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} tree={tree} />} />
     </Routes>
   )
 }

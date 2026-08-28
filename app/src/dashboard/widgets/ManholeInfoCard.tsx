@@ -17,9 +17,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 
 /**
  * Manhole + flow meter attributes for this site — see useManholeInfo.ts for
- * the join (currently against a static generated table, manholeData.ts;
- * meant to be swapped for a live SQL Server table later per the request that
- * added this). Same label/value grid styling as FlowMonitorDetail's own
+ * the join. Data is owned and edited in the anomaly-detection repo
+ * (flow_monitors/manhole_data.json) and published to this app over MQTT
+ * (flow_monitors/manhole_info/{flowMeterId}) — nothing here hardcodes
+ * values. Same label/value grid styling as FlowMonitorDetail's own
  * Site Attributes card (.cmom-device-card-details) for visual consistency.
  */
 export default function ManholeInfoCard({ info }: Props) {

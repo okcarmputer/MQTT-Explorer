@@ -36,10 +36,11 @@ const FLOW_CHANNEL_DEFAULT_TIME_RANGE = '2h'
 interface Props {
   deviceKey: string
   deviceNode: q.TreeNode<any>
+  tree?: q.Tree<any>
   onBack: () => void
 }
 
-export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Props) {
+export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack }: Props) {
   const [tick, setTick] = React.useState(0)
   const [manholeView, setManholeView] = React.useState(false)
 
@@ -103,7 +104,8 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
   const siteName = siteNameKey ? siteInfo[siteNameKey] : undefined
   const siteLocation = siteLocationKey ? siteInfo[siteLocationKey] : undefined
 
-  // The manhole/flow-meter table (manholeData.ts) joins on flowmeterid,
+  // The manhole/flow-meter table (published by the anomaly-detection repo to
+  // flow_monitors/manhole_info, see useManholeInfo.ts) joins on flowmeterid,
   // which lines up with site_info's own "NAME" field (e.g. "FM250-16") —
   // NOT this site's MQTT key/deviceKey (e.g. "15223"), an internal ID the
   // table has no concept of. "NAME" specifically, not the same loose
@@ -112,7 +114,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, onBack }: Pro
   // first. deviceKey is still passed as a second candidate in case a site's
   // key happens to already be in the table's site-number format.
   const flowMeterNameKey = siteInfoKeys.find(k => k.toLowerCase() === 'name')
-  const manholeInfo = useManholeInfo([flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
+  const manholeInfo = useManholeInfo(tree, [flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
 
   // Pulled directly via SQL (bypasses MQTT entirely) — see
   // Anomaly_Detection/DASHBOARD_INTEGRATION_INSTRUCTIONS.md Part 1 for the

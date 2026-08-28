@@ -9,6 +9,15 @@
  * lives in anomalyTypeScan.ts, which looks for a retained `.../anomaly` child
  * next to each channel/input node (literal name "anomaly", not configured
  * here — there's only one convention, so it isn't a per-device-type setting).
+ *
+ * Severity is ALWAYS computed server-side, by the anomaly-detection repo's
+ * detectors, and published to that `.../anomaly` topic — this app only ever
+ * reads it (see severityFromPayload below). There is no client-side
+ * classification anywhere in this app, digital inputs included; if a
+ * severity looks wrong, the fix belongs in the anomaly-detection repo
+ * (flow_monitors/detector.py or pump_stations/ps_mqtt.py's
+ * classify_di_severity()), not here. A channel/input with no `.../anomaly`
+ * topic yet reads as plain "OK" rather than being guessed at.
  */
 
 export type Severity = 'OK' | 'LOW' | 'MODERATE' | 'CRITICAL'
@@ -50,11 +59,11 @@ export const dashboardConfig = {
     // "Data Channel Types" button (DataChannelTypes.tsx) instead.
     metadataChildren: ['data_channel_types'],
     dataChannelTypesPath: 'flow_monitors/prod/data_channel_types',
-    // No flow_monitors/{site}/{channel}/anomaly topic is published yet — anomaly severity is
-    // currently computed by detector.py and written to SQL Server only (per the anomaly-detection
-    // repo's rewrite: Flow_Monitor_Anomalies, one row per channel per cycle, no site-level
-    // aggregate), consumed by Grafana, not MQTT. Until detector.py (or a sibling script) publishes
-    // a retained anomaly leaf per channel, that leaf simply won't be found and severity reads OK.
+    // flow_monitors/detector.py publishes flow_monitors/{site}/{channel}/anomaly
+    // and .../baseline (retained) every DETECTOR_INTERVAL_MINUTES — see the
+    // anomaly-detection repo's DASHBOARD_INTEGRATION_INSTRUCTIONS.md. A
+    // channel with no reading that cycle is skipped, not published as "OK",
+    // so a missing leaf here just means "no comparison yet," not "healthy."
   },
   pumpStations: {
     // Confirmed against opc-logger's logger.py: build_topic() publishes to
@@ -66,8 +75,11 @@ export const dashboardConfig = {
     // as a serial. NODE_TREE's leaf names (UnitStatus, DigitalInputs, AnalogInputs, ACPower,
     // BatteryState, Temperature, ...) are exactly what PumpStationDetail.tsx reads.
     topicPrefix: 'pump_stations/opcua/12299',
-    // Same as flow monitors: no .../{serial}/{input}/anomaly topic is published yet
-    // (anomaly-detection repo now writes to OPC_Anomalies, per-input, no station-level aggregate).
+    // pump_stations/ps_mqtt.py publishes .../DigitalInputs/DigitalInput{n}/anomaly
+    // (retained, server-computed from AlarmDescription via classify_di_severity())
+    // every audit cycle; pump_detector.py additionally publishes .../anomaly +
+    // .../baseline (shadow-mode) for AnalogInputs/PumpRuntimes/RainInfo — see the
+    // anomaly-detection repo's DASHBOARD_INTEGRATION_INSTRUCTIONS.md.
   },
 }
 
@@ -108,24 +120,5 @@ export function severityFromPayload(payload: string | undefined | null): Severit
   if (upper.includes('CRITICAL')) return 'CRITICAL'
   if (upper.includes('MODERATE')) return 'MODERATE'
   if (upper.includes('LOW')) return 'LOW'
-  return 'OK'
-}
-
-/**
- * Digital input severity, computed client-side straight from the raw
- * pump_stations/{serial}/DigitalInputs/DigitalInput{n} payload — no detector
- * publish needed, unlike every other severity value in this app. Used by
- * both DigitalInputRow (per-device display) and anomalyTypeScan (fleet-wide
- * rollup / Anomalies feed), so the two stay in agreement.
- */
-export function digitalInputSeverity(alarm: boolean, alarmDescription: string | undefined | null): Severity {
-  if (!alarm) {
-    return 'OK'
-  }
-
-  const desc = (alarmDescription || '').toLowerCase()
-  if (desc.includes('alarm') || desc.includes('fail')) return 'CRITICAL'
-  if (desc.includes('exceeded')) return 'MODERATE'
-  if (desc.includes('running') || desc.includes('normal')) return 'LOW'
   return 'OK'
 }

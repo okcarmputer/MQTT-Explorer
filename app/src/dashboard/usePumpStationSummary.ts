@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as q from '../../../backend/src/Model'
-import { Severity, digitalInputSeverity } from './config'
+import { Severity, severityFromPayload } from './config'
 import { readGroupFields } from './pumpStationLeaf'
 
 export interface DigitalInputSummary {
@@ -66,14 +66,14 @@ export function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
 
   const digitalGroup = deviceNode.edges['DigitalInputs']?.target
   const digitalInputs: DigitalInputSummary[] = (digitalGroup?.edgeArray ?? [])
-    .map(edge => ({ key: edge.name, json: readGroupFields(edge.target) }))
+    .map(edge => ({ key: edge.name, node: edge.target, json: readGroupFields(edge.target) }))
     .filter(d => hasDescription(d.json))
     .map(d => ({
       key: d.key,
       label: d.json.Description,
       description: d.json.Description,
       alarmDescription: d.json.AlarmDescription || '',
-      severity: digitalInputSeverity(Boolean(d.json.Alarm), d.json.AlarmDescription),
+      severity: severityFromPayload(d.node.edges['anomaly']?.target.message?.payload?.toUnicodeString()),
     }))
     .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
 

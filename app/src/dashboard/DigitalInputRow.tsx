@@ -1,7 +1,7 @@
 import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import SeverityBadge from './SeverityBadge'
-import { digitalInputSeverity, severityColors } from './config'
+import { severityFromPayload, severityColors } from './config'
 import { readGroupFields } from './pumpStationLeaf'
 
 interface Props {
@@ -22,9 +22,11 @@ function formatDiTag(key: string): string {
 
 /**
  * Digital inputs are alarms, not trends — current alarm description +
- * severity, no chart. Severity rule lives in config.ts (digitalInputSeverity)
- * so this row and the fleet-wide rollup (anomalyTypeScan.ts) stay in sync.
- * `node` here is the DigitalInput{n} group; its Alarm/AlarmDescription
+ * severity, no chart. Severity is read straight off the retained
+ * .../DigitalInputs/DigitalInput{n}/anomaly topic ps_mqtt.py publishes
+ * (classify_di_severity(), server-side) — this app never re-derives it from
+ * Alarm/AlarmDescription, matching anomalyTypeScan.ts's fleet-wide rollup.
+ * `node` here is the DigitalInput{n} group; its Alarm/AlarmDescription/anomaly
  * fields are each their own leaf topic (see pumpStationLeaf.ts), not one
  * JSON blob on this node itself, so this re-renders on any of that group's
  * child leaves receiving a message rather than on `node` directly.
@@ -42,7 +44,7 @@ export default function DigitalInputRow({ diKey, name, node }: Props) {
     }
   }, [node])
   const json = readGroupFields(node)
-  const severity = digitalInputSeverity(Boolean(json.Alarm), json.AlarmDescription)
+  const severity = severityFromPayload(node.edges['anomaly']?.target.message?.payload?.toUnicodeString())
   const color = severityColors[severity]
   const value = json.AlarmDescription || (json.Alarm ? 'Alarm' : 'Normal')
 

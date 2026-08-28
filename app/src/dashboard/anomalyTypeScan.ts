@@ -1,5 +1,5 @@
 import * as q from '../../../backend/src/Model'
-import { Severity, digitalInputSeverity, severityFromPayload, severityOrder } from './config'
+import { Severity, severityFromPayload, severityOrder } from './config'
 import { readGroupFields } from './pumpStationLeaf'
 
 export interface AnomalyTypeEntry {
@@ -71,24 +71,13 @@ function readJson(node: q.TreeNode<any>): any {
 }
 
 /**
- * Severity for one entry, matching exactly what the per-device detail views
- * show: a retained `.../anomaly` topic if present, otherwise digital-input
- * alarms are recognized by their own payload shape (Alarm + AlarmDescription)
- * and scored client-side via the same rule DigitalInputRow uses. Everything
- * else (no anomaly topic yet, e.g. flow channels/analog inputs pre-detector-publish)
- * reads OK — see config.ts.
+ * Severity for one entry: always read from the retained `.../anomaly` topic
+ * the anomaly-detection repo publishes — never re-derived client-side. An
+ * entry with no anomaly topic yet (no detector cycle has covered it) reads
+ * as plain OK, matching DigitalInputRow and config.ts's severityFromPayload.
  */
 export function resolveEntrySeverity(entry: AnomalyTypeEntry): Severity {
-  if (entry.anomalyNode) {
-    return severityFromPayload(entry.anomalyNode.message?.payload?.toUnicodeString())
-  }
-
-  const json = readJson(entry.node)
-  if ('Alarm' in json && 'AlarmDescription' in json) {
-    return digitalInputSeverity(Boolean(json.Alarm), json.AlarmDescription)
-  }
-
-  return 'OK'
+  return severityFromPayload(entry.anomalyNode?.message?.payload?.toUnicodeString())
 }
 
 /**
