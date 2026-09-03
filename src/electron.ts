@@ -1,5 +1,6 @@
 import * as log from 'electron-log'
 import * as path from 'path'
+import * as dotenv from 'dotenv'
 import ConfigStorage from '../backend/src/ConfigStorage'
 import { MessageHistoryStore } from '../backend/src/Model/MessageHistoryStore'
 import { app, BrowserWindow, Menu, dialog } from 'electron'
@@ -23,7 +24,36 @@ import { makeOpenDialogRpc, makeSaveDialogRpc } from '../events/OpenDialogReques
 import { getAppVersion, writeToFile, readFromFile } from '../events'
 import { backendRpc, backendEvents } from '../events/EventSystem/EventBus'
 import { RpcEvents } from '../events/EventsV2'
-import { getFlowMonitorBaseline, getFlowMonitorHistory, getFlowMonitorPortInfo, getPumpStationWetWellInfo } from './sqlReporting'
+import {
+  getFlowMonitorBaseline,
+  getFlowMonitorHistory,
+  getFlowMonitorPortInfo,
+  getPumpStationWetWellInfo,
+  getManholeInfo,
+} from './sqlReporting'
+
+// SQL_SERVER/SQL_DATABASE/SQL_USER/etc (see src/sqlReporting.ts) have to be
+// real process.env vars for the desktop app the same way docker-compose sets
+// them for the browser/server deployment — but a double-clicked .exe has no
+// shell to inherit them from, so without this every SQL-backed RPC silently
+// reports "not configured" even when SQL Server itself is reachable and the
+// query is correct. Loads a plain KEY=value .env file from the same
+// userData folder settings.json/message-history.json already live in (see
+// the ConfigStorage/MessageHistoryStore setup below) — user-writable and
+// stable across installs, unlike trying to set Windows system/user env vars
+// and relying on a relaunch to pick them up. Silently does nothing if the
+// file doesn't exist (MQTT-only is still a fully supported mode).
+const envFilePath = path.join(app.getPath('userData'), '.env')
+const dotenvResult = dotenv.config({ path: envFilePath })
+// One line either way so "SQL reads return configured:false" is diagnosable
+// from the log alone next time, instead of re-deriving this from scratch —
+// this exact silent-failure shape (env vars simply never reaching the
+// process) is what happened before this loader existed.
+console.log(
+  dotenvResult.error
+    ? `[env] No .env file at ${envFilePath} (${(dotenvResult.error as NodeJS.ErrnoException).code ?? 'error'}) — SQL reporting stays unconfigured unless SQL_SERVER etc are set some other way.`
+    : `[env] Loaded ${Object.keys(dotenvResult.parsed ?? {}).length} var(s) from ${envFilePath}`
+)
 
 registerCrashReporter()
 
@@ -114,6 +144,15 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('[SQL] getPumpStationWetWellInfo failed:', error instanceof Error ? error.message : error)
       return { configured: true, serial, wetWell: null }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getManholeInfo, async () => {
+    try {
+      return await getManholeInfo()
+    } catch (error) {
+      console.error('[SQL] getManholeInfo failed:', error instanceof Error ? error.message : error)
+      return { configured: true, records: [] }
     }
   })
 

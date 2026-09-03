@@ -49,6 +49,9 @@ export const RpcEvents = {
   getPumpStationWetWellInfo: {
     topic: 'sql/pump-station-wet-well-info',
   } as RpcEvent<PumpStationWetWellInfoRequest, PumpStationWetWellInfoResponse>,
+  getManholeInfo: {
+    topic: 'sql/manhole-info',
+  } as RpcEvent<void, ManholeInfoResponse>,
   getTopicHistory: {
     topic: 'history/topic',
   } as RpcEvent<TopicHistoryRequest, TopicHistoryResponse>,
@@ -202,6 +205,23 @@ export interface PumpStationWetWellDimension {
   // cylindrical/unknown wells.
   lengthFt: number | null
   widthFt: number | null
+  // Which of the two possible sources diameterFt/depthFt (and, when present,
+  // lengthFt/widthFt/capacityGallons) actually came from — the dashboard
+  // shows this explicitly per the two-halves wet well card (SQL/SPUMPSTA
+  // side vs. records-spreadsheet side) rather than silently picking a
+  // winner the way the backend already does for the merged value above.
+  dimensionsSource: 'spreadsheet' | 'sql-comments' | null
+  // The Comments-text-parsed diameter/depth even when the spreadsheet value
+  // won and is what diameterFt/depthFt above actually hold — so the card
+  // can show both when they disagree instead of only ever showing the
+  // spreadsheet's number. Null whenever Comments didn't parse to a value,
+  // regardless of which source won.
+  sqlParsedDiameterFt: number | null
+  sqlParsedDepthFt: number | null
+  // Wet well capacity as given in the records spreadsheet (src/wetWellDimensions.ts)
+  // — distinct from volumeGallons below (SPUMPSTA.WetWellVolume, a separate
+  // GIS field) since the two sources can disagree the same way diameter/depth can.
+  capacityGallons: number | null
   currentLevelFt: number | null // live "Wet Well Level" analog reading
   levelLastSeenAt: string | null
 
@@ -225,6 +245,47 @@ export interface PumpStationWetWellInfoResponse {
   configured: boolean
   serial: string
   wetWell: PumpStationWetWellDimension | null
+}
+
+// Manhole + flow meter GIS attributes — direct SQL Server read of
+// [sde].[gisadmin].[REWAFLOWMETER] left-joined to [sde].[gisadmin].[SMANHOLE]
+// (see src/sqlReporting.ts's getManholeInfo), replacing the earlier
+// MQTT-published flow_monitors/manhole_info topic tree as this app's source
+// for this data. Bulk fetch (no request params, one row per flow meter,
+// matched to its manhole where the join finds one) — the frontend matches a
+// site to its row client-side by trying several candidate keys against
+// flowMeterId/installCurrentMhId/manholeFacilityId, same as before, since
+// source data quality on those ids is inconsistent (see useManholeInfo.ts).
+export interface ManholeRecord {
+  manholeObjectId: number | null
+  manholeFacilityId: string | null
+  manholeLocation: string | null
+  manholeInstallDate: string | null
+  rimElevation: number | null
+  manholeAccessDiameter: number | null
+  manholeDepthFt: number | null
+  manholeStatus: string | null
+  manholeX: number | null
+  manholeY: number | null
+  flowMeterX: number | null
+  flowMeterY: number | null
+  comment: string | null
+  flowMeterObjectId: number | null
+  flowMeterId: string | null
+  wrrfBasin: string | null
+  installMhId: string | null
+  installCurrentMhId: string | null
+  flowMeterInstallDate: string | null
+  flowMeterStatus: string | null
+  diameter: number | null
+  flowMeterLocationDesc: string | null
+  serialNum: string | null
+  phase: string | null
+}
+
+export interface ManholeInfoResponse {
+  configured: boolean
+  records: ManholeRecord[]
 }
 
 // Locally-persisted MQTT message history (see backend/src/Model/MessageHistoryStore.ts)

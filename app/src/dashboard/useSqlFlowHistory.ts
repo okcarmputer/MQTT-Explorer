@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { rendererRpc } from '../eventBus'
 import { RpcEvents, FlowMonitorHistoryResponse } from '../../../events/EventsV2'
+import { SQL_POLL_INTERVAL_MS } from './config'
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000
 const RPC_TIMEOUT_MS = 8000 // degrade to "unavailable" instead of hanging forever if nothing responds
 
 /**
@@ -43,7 +43,7 @@ export function useSqlFlowHistory(siteNumber: string | undefined, hours: number)
     }
 
     fetchHistory()
-    const interval = setInterval(fetchHistory, POLL_INTERVAL_MS)
+    const interval = setInterval(fetchHistory, SQL_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true

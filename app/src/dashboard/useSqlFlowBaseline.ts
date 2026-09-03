@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { rendererRpc } from '../eventBus'
 import { RpcEvents, FlowMonitorBaselineResponse } from '../../../events/EventsV2'
+import { SQL_POLL_INTERVAL_MS } from './config'
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000 // baselines refresh at most daily server-side — no need to poll often
 const RPC_TIMEOUT_MS = 8000 // degrade to "unavailable" instead of hanging forever if nothing responds
 
 /**
@@ -45,7 +45,7 @@ export function useSqlFlowBaseline(siteNumber: string | undefined): FlowMonitorB
     }
 
     fetchBaseline()
-    const interval = setInterval(fetchBaseline, POLL_INTERVAL_MS)
+    const interval = setInterval(fetchBaseline, SQL_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true

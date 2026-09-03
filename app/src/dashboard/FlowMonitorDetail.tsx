@@ -2,24 +2,19 @@ import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
 import { ALL_TIME_VALUE } from './TimeRangeToggle'
-import FlowTrendChart from './FlowTrendChart'
+import DiurnalGaugeCard from './widgets/DiurnalGaugeCard'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
-import { useSqlFlowHistory } from './useSqlFlowHistory'
 import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
 import { formatFlowPortInfo, extractDiameter, readPortsForNode } from './useFlowPortInfo'
 import { flowChannels } from './config'
+import { DiurnalMeasurementType, useDiurnalAnomaly } from './useDiurnalAnomalies'
 import { humanizeKey } from './useFlowSiteInfo'
 import { useManholeInfo } from './useManholeInfo'
 import PipeGauge from './widgets/PipeGauge'
 import ManholeGauge from './widgets/ManholeGauge'
 import ManholeInfoCard from './widgets/ManholeInfoCard'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
-
-const HISTORY_RANGE_OPTIONS = [
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 24 * 7 },
-  { label: '30d', hours: 24 * 30 },
-]
+import { useFitRowHeight } from './widgets/useFitRowHeight'
 
 // Flow monitor channel trend charts (Level/Velocity/Flow) default to a wider
 // window than the pump-station default (30min) — these devices are watched
@@ -114,16 +109,33 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   // first. deviceKey is still passed as a second candidate in case a site's
   // key happens to already be in the table's site-number format.
   const flowMeterNameKey = siteInfoKeys.find(k => k.toLowerCase() === 'name')
-  const manholeInfo = useManholeInfo(tree, [flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
+  const manholeInfo = useManholeInfo([flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
+
+  // diurnal_detector.py's hour-of-day engine — a separate detector/topic tree
+  // from the monthly flow_monitors/{site}/{channel}/anomaly one already read
+  // via TrendPanel's own node.edges['anomaly'] lookup (see useDiurnalAnomalies.ts).
+  // One hook call per fixed measurement type (not per-channel in a .map) since
+  // hooks can't be called conditionally/in a loop.
+  const diurnalFlow = useDiurnalAnomaly(tree, deviceKey, 'Flow')
+  const diurnalLevel = useDiurnalAnomaly(tree, deviceKey, 'Level')
+  const diurnalVelocity = useDiurnalAnomaly(tree, deviceKey, 'Velocity')
+  const diurnalByType: Record<DiurnalMeasurementType, ReturnType<typeof useDiurnalAnomaly>> = {
+    Flow: diurnalFlow,
+    Level: diurnalLevel,
+    Velocity: diurnalVelocity,
+  }
+  function diurnalText(measurementType: DiurnalMeasurementType): string | undefined {
+    const d = diurnalByType[measurementType]
+    if (!d) return undefined
+    const parts = [`vs. hour avg ${d.avgAnomalyLevel ?? '?'}`, `vs. normal shape ${d.normalAnomalyLevel ?? '?'}`]
+    return parts.join(', ')
+  }
 
   // Pulled directly via SQL (bypasses MQTT entirely) — see
   // Anomaly_Detection/DASHBOARD_INTEGRATION_INSTRUCTIONS.md Part 1 for the
   // source query. Unavailable (undefined) when SQL_SERVER isn't configured
   // server-side or in Electron desktop mode — that's expected, not an error.
   const sqlBaseline = useSqlFlowBaseline(deviceKey)
-
-  const [historyHours, setHistoryHours] = React.useState(HISTORY_RANGE_OPTIONS[0].hours)
-  const history = useSqlFlowHistory(deviceKey, historyHours)
 
   // Pipe/port shape + dimension, straight from the live MQTT
   // flow_monitors/{site}/ports/{port_id} topic fm_mqtt.py already publishes
@@ -172,8 +184,27 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   const pipeDiameterValue = diameter?.value ?? sqlDiameter?.dimensionValue ?? levelChannelConfig?.gaugeMaxInches
   const pipeDiameterUnit = diameter?.unit ?? sqlDiameter?.dimensionUnits ?? 'in'
 
+  // Row 1: Pipe | Site Attributes | Manhole Info | Diurnal comparison — four
+  // equal-width columns, all sharing ROW1_H. Row 2 is one equal-sized card
+  // per Level/Velocity/Flow channel, three equal columns. Hoisted above the
+  // panels IIFE below (rather than declared inside it) so totalRows can feed
+  // useFitRowHeight — the two need to agree on the same row math.
+  const ROW1_H = 17
+  const ROW2_H = 16
+  const channelOrder = ['level', 'flow', 'velocity']
+  const orderedChannels = [...channels].sort((a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key))
+  const chartRows = Math.max(1, Math.ceil(orderedChannels.length / 3))
+  const totalRows = ROW1_H + ROW2_H * chartRows
+  // Scales PanelGrid's rowHeight so this page's default layout fills
+  // whatever vertical space is actually available instead of a fixed
+  // 32px/row layout that may run taller than the viewport — see
+  // useFitRowHeight's own comment. `fitRef` goes on the flex:1 wrapper below
+  // (not the outer padded div), so its measured height is the real
+  // post-header, post-padding budget.
+  const { ref: fitRef, rowHeight } = useFitRowHeight(totalRows, 32)
+
   return (
-    <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', overflow: 'auto' }}>
+    <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <button
         type="button"
         onClick={onBack}
@@ -194,38 +225,14 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
           Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
         </span>
         {(siteName || siteLocation) && (
-          <span style={{ fontSize: '0.55em', fontWeight: 400, opacity: 0.75, textAlign: 'right' }}>
+          <span style={{ fontSize: '0.75em', fontWeight: 700, opacity: 0.95, textAlign: 'right' }}>
             {[siteName, siteLocation].filter(Boolean).join(' — ')}
           </span>
         )}
       </h2>
 
+      <div ref={fitRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
       {(() => {
-        // Row 1: Pipe | (Site Attributes over Trend vs. baseline) | Manhole
-        // Info — three equal-width columns, the middle one internally split
-        // into two stacked cards. Row 2 is one equal-sized card per
-        // Level/Velocity/Flow channel, three equal columns. Row heights are
-        // shared constants (ROW1_H/ROW2_H) rather than per-panel numbers so
-        // every row-1 card starts the same height as its row-1 siblings, and
-        // likewise for row 2 — "each card the same size" by construction,
-        // not by coincidence.
-        const ROW1_H = 17
-        const ROW2_H = 16
-        // Row 1's middle column stacks Site Attributes over Trend vs.
-        // Baseline (rather than each taking its own full-height column) so
-        // Manhole Info can be its own third column at the same full ROW1_H
-        // height as Pipe — matching the reference layout. autoHeight
-        // corrects each of these three guesses to real content height once
-        // mounted (see PanelGrid); they just need to roughly split ROW1_H.
-        const SITE_ATTRIBUTES_H = 9
-        const SQL_HISTORY_H = ROW1_H - SITE_ATTRIBUTES_H
-        // Bottom row in this fixed order (matching the reference image)
-        // rather than flowChannels' own declaration order.
-        const channelOrder = ['level', 'flow', 'velocity']
-        const orderedChannels = [...channels].sort(
-          (a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key)
-        )
-
         // if/else rather than a chained ternary — a 3-way ternary here reads
         // worse than the equivalent explicit branches.
         let pipeContent: React.ReactNode
@@ -264,7 +271,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
           {
             id: 'pipe',
             title: 'Pipe',
-            defaultLayout: { x: 0, y: 0, w: 4, h: ROW1_H },
+            defaultLayout: { x: 0, y: 0, w: 3, h: ROW1_H },
             content: (
               <div style={{ height: '100%', position: 'relative' }}>
                 {/* Top-right toggle between the plain pipe-fill view and the
@@ -300,7 +307,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
           {
             id: 'site-attributes',
             title: 'Site Attributes',
-            defaultLayout: { x: 4, y: 0, w: 4, h: SITE_ATTRIBUTES_H },
+            defaultLayout: { x: 3, y: 0, w: 3, h: ROW1_H },
             autoHeight: true,
             content:
               attributeRows.length === 0 ? (
@@ -319,9 +326,16 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
           {
             id: 'manhole-info',
             title: 'Manhole Info',
-            defaultLayout: { x: 8, y: 0, w: 4, h: ROW1_H },
+            defaultLayout: { x: 6, y: 0, w: 3, h: ROW1_H },
             autoHeight: true,
             content: <ManholeInfoCard info={manholeInfo} />,
+          },
+          {
+            id: 'sql-history',
+            title: 'Diurnal comparison (current hour/month)',
+            defaultLayout: { x: 9, y: 0, w: 3, h: ROW1_H },
+            autoHeight: true,
+            content: <DiurnalGaugeCard diurnalByType={diurnalByType} pipeDiameterValue={pipeDiameterValue} />,
           },
           // One resizable panel per channel (rather than one "Level / Velocity
           // / Flow" panel holding all three charts in a fixed-size CSS grid)
@@ -350,6 +364,9 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
                   dotPath="Value"
                   unit={c.unit}
                   sqlBaselineText={sqlBaselineText}
+                  diurnalText={diurnalText(c.label as DiurnalMeasurementType)}
+                  diurnalAvgLevel={diurnalByType[c.label as DiurnalMeasurementType]?.avgAnomalyLevel}
+                  diurnalNormalLevel={diurnalByType[c.label as DiurnalMeasurementType]?.normalAnomalyLevel}
                   range={c.key === 'level' && pipeDiameterValue !== undefined ? [0, pipeDiameterValue] : undefined}
                   timeRangeOptions={FLOW_CHANNEL_TIME_RANGE_OPTIONS}
                   defaultTimeRange={FLOW_CHANNEL_DEFAULT_TIME_RANGE}
@@ -360,74 +377,16 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
             }
             return panel
           }),
-          {
-            id: 'sql-history',
-            title: 'Trend vs. CHA baseline (SQL history)',
-            defaultLayout: { x: 4, y: SITE_ATTRIBUTES_H, w: 4, h: SQL_HISTORY_H },
-            autoHeight: true,
-            content: (
-              <>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-                  {HISTORY_RANGE_OPTIONS.map(opt => (
-                    <button
-                      key={opt.hours}
-                      type="button"
-                      onClick={() => setHistoryHours(opt.hours)}
-                      style={{
-                        padding: '2px 10px',
-                        fontSize: 12,
-                        borderRadius: 'var(--cmom-radius-sm, 4px)',
-                        border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
-                        backgroundColor: opt.hours === historyHours ? 'var(--cmom-accent, #1976d2)' : 'transparent',
-                        color: opt.hours === historyHours ? '#fff' : 'inherit',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                {history && !history.configured ? (
-                  <div style={{ opacity: 0.7, fontSize: 13 }}>SQL reporting isn&apos;t configured on this server.</div>
-                ) : (
-                  <div className="cmom-trend-grid">
-                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-                      <FlowTrendChart
-                        title="Flow"
-                        unit="MGD"
-                        points={history?.points ?? []}
-                        channel={{ value: 'flow', mean: 'flowMean', stdDev: 'flowStdDev', alarm: 'flowAlarm' }}
-                      />
-                    </div>
-                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-                      <FlowTrendChart
-                        title="Level"
-                        unit="in"
-                        points={history?.points ?? []}
-                        channel={{ value: 'level', mean: 'levelMean', stdDev: 'levelStdDev', alarm: 'levelAlarm' }}
-                      />
-                    </div>
-                    <div className="cmom-card" style={{ padding: 'var(--cmom-space-2, 8px)', minWidth: 0 }}>
-                      <FlowTrendChart
-                        title="Velocity"
-                        unit="fps"
-                        points={history?.points ?? []}
-                        channel={{ value: 'velocity', mean: 'velocityMean', stdDev: 'velocityStdDev', alarm: 'velocityAlarm' }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
-            ),
-          },
         ]
 
-        // Bumped from "cmom-layout-flow-monitor-detail" — Manhole Info's
-        // position/row-1 column split changed here, and PanelGrid's saved
-        // layout otherwise wins over new defaultLayout values for any panel
-        // id a user's browser already has a stored position for.
-        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v2" panels={panels} />
+        // Bumped from "...-v2" — row 1 is now four equal columns (Diurnal
+        // comparison moved out of a stacked-under-Site-Attributes layout
+        // into its own column) and PanelGrid's saved layout otherwise wins
+        // over new defaultLayout values for any panel id a user's browser
+        // already has a stored position for.
+        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v3" panels={panels} rowHeight={rowHeight} />
       })()}
+      </div>
     </div>
   )
 }

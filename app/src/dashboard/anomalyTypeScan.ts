@@ -33,10 +33,22 @@ function looksLikePumpStationReadingGroup(node: q.TreeNode<any>): boolean {
   return Boolean(node.edges['Alarm'] || node.edges['ScaledValue'])
 }
 
-export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: number = 2): AnomalyTypeEntry[] {
+// Flow monitors' anomaly topics live under a different root than their value
+// topics (flow_monitors/{site}/... vs flow_monitors/prod/{site}/... — see
+// config.ts's anomalyTopicPrefix), so the "anomaly" leaf for a given channel
+// can't always be found as that channel node's own child. When `anomalyRoot`
+// is given (the equivalent site node in that other tree), each step down
+// deviceNode is mirrored down anomalyRoot so the anomaly lookup follows the
+// right tree. Pump stations pass no anomalyRoot — their anomaly topics really
+// are children of the value nodes, so the old direct lookup still applies.
+export function collectAnomalyTypes(
+  deviceNode: q.TreeNode<any>,
+  maxDepth: number = 2,
+  anomalyRoot?: q.TreeNode<any>
+): AnomalyTypeEntry[] {
   const out: AnomalyTypeEntry[] = []
 
-  function walk(node: q.TreeNode<any>, pathSegments: string[], depthRemaining: number) {
+  function walk(node: q.TreeNode<any>, pathSegments: string[], depthRemaining: number, anomalyNode: q.TreeNode<any> | undefined) {
     for (const edge of node.edgeArray) {
       if (EXCLUDED_SEGMENTS.has(edge.name)) {
         continue
@@ -44,7 +56,8 @@ export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: numbe
 
       const child = edge.target
       const path = [...pathSegments, edge.name]
-      const anomalyEdge = child.edges[ANOMALY_CHILD_NAME]
+      const mirroredAnomalyNode = anomalyNode?.edges[edge.name]?.target
+      const anomalyEdge = mirroredAnomalyNode?.edges[ANOMALY_CHILD_NAME] ?? child.edges[ANOMALY_CHILD_NAME]
       const isReading = anomalyEdge || child.hasMessage() || looksLikePumpStationReadingGroup(child)
 
       if (isReading) {
@@ -53,12 +66,12 @@ export function collectAnomalyTypes(deviceNode: q.TreeNode<any>, maxDepth: numbe
       }
 
       if (depthRemaining > 0 && child.edgeArray.length > 0) {
-        walk(child, path, depthRemaining - 1)
+        walk(child, path, depthRemaining - 1, mirroredAnomalyNode)
       }
     }
   }
 
-  walk(deviceNode, [], maxDepth)
+  walk(deviceNode, [], maxDepth, anomalyRoot)
   return out
 }
 
@@ -130,8 +143,8 @@ export function isEntryDisplayable(entry: AnomalyTypeEntry): boolean {
  * its own (see config.ts) — this is a rollup for display purposes only, not
  * a new source of truth.
  */
-export function deviceSeverity(deviceNode: q.TreeNode<any>): Severity {
-  const entries = collectAnomalyTypes(deviceNode).filter(isEntryDisplayable)
+export function deviceSeverity(deviceNode: q.TreeNode<any>, anomalyRoot?: q.TreeNode<any>): Severity {
+  const entries = collectAnomalyTypes(deviceNode, 2, anomalyRoot).filter(isEntryDisplayable)
   let worst: Severity = 'OK'
   for (const entry of entries) {
     const severity = resolveEntrySeverity(entry)

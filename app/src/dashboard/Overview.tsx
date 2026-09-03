@@ -1,10 +1,11 @@
 import * as React from 'react'
+import { Link } from 'react-router-dom'
 import { connect } from 'react-redux'
 import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
-import { Severity } from './config'
+import { dashboardConfig, Severity } from './config'
 import { useFleetAnomalySeverities } from './useTopicChildren'
-import { useAnomalyFeed, useCurrentAnomalies } from './useAnomalyFeed'
+import { useAnomalyFeed, useCurrentAnomalies, useDiurnalSeverities } from './useAnomalyFeed'
 import { useMqttStore } from './store/mqttStore'
 import { useFlowMeasurements } from './useFlowMeasurements'
 import StatusWidget from './StatusWidget'
@@ -33,19 +34,23 @@ function countBySeverity(severities: Severity[]): Record<Severity, number> {
  * wrong right now" at a glance, not to browse individual devices.
  */
 function Overview({ tree }: Props) {
-  const { flowDevices, pumpDevices } = useAnomalyFeed(tree)
+  const { flowDevices, pumpDevices, diurnalDevices } = useAnomalyFeed(tree)
   // All currently-active anomalies, not just the ones that transitioned
   // recently in this session — see useCurrentAnomalies for why this
   // replaced the old capped/session-scoped "Recent Anomalies" feed here.
-  const currentAnomalies = useCurrentAnomalies(flowDevices, pumpDevices)
+  const currentAnomalies = useCurrentAnomalies(flowDevices, pumpDevices, diurnalDevices)
 
   // Fleet-wide rollup across every anomaly type (channel/input) on every
   // device — devices themselves carry no severity to roll up from (see
   // config.ts). Per-anomaly-type, not per-device, so sourced from the tree
   // directly rather than the store's per-device severity rollup.
-  const flowSeverities = useFleetAnomalySeverities(flowDevices)
+  const flowSeverities = useFleetAnomalySeverities(flowDevices, dashboardConfig.flowMonitors.anomalyTopicPrefix)
   const pumpSeverities = useFleetAnomalySeverities(pumpDevices)
-  const alarmCounts = countBySeverity([...flowSeverities, ...pumpSeverities])
+  // diurnal_detector.py's hour-of-day engine — a separate detector/topic tree
+  // from the monthly one above (see useDiurnalAnomalies.ts), folded into the
+  // same LOW/MODERATE/CRITICAL counts via severityFromDiurnalLevel.
+  const diurnalSeverities = useDiurnalSeverities(diurnalDevices)
+  const alarmCounts = countBySeverity([...flowSeverities, ...pumpSeverities, ...diurnalSeverities])
 
   const flowMonitors = useMqttStore(s => s.flowMonitors)
   const pumpStations = useMqttStore(s => s.pumpStations)
@@ -77,8 +82,14 @@ function Overview({ tree }: Props) {
       </div>
 
       <div className="cmom-stat-grid">
-        <StatusWidget label="Flow Monitors" value={activeFlowCount} subtitle="reporting measurements" />
-        <StatusWidget label="Pump Stations" value={pumpStationCount} subtitle="tracked on broker" />
+        {/* Flow Monitors/Pump Stations tiles double as links to their own
+            tab — clicking the count takes you to the list it's counting. */}
+        <Link to="/flow-monitors" className="cmom-stat-tile-link">
+          <StatusWidget label="Flow Monitors" value={activeFlowCount} subtitle="reporting measurements" />
+        </Link>
+        <Link to="/pump-stations" className="cmom-stat-tile-link">
+          <StatusWidget label="Pump Stations" value={pumpStationCount} subtitle="tracked on broker" />
+        </Link>
         <AlarmsWidget counts={alarmCounts} />
         <StaleDevicesWidget devices={allDeviceLastUpdates} />
       </div>

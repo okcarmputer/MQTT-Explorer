@@ -650,6 +650,34 @@
   box-shadow: var(--cmom-card-shadow), 0 0 0 1px rgba(244, 67, 54, 0.25);
 }
 
+/* Overview's top-row tiles that are also links (Flow Monitors/Pump
+   Stations counts -> their tab) — same tile look, but a visible hover state
+   so it reads as clickable instead of just a static number.
+   display: contents removes the <a> itself from the box tree entirely, so
+   the .cmom-stat-tile div inside becomes the grid's actual direct child
+   again (same sizing as every other stat tile, sharing the same auto row
+   height) — display: flex here previously made the <a> its own flex box
+   with default stretch behavior, which is what made these two tiles grow
+   much taller/narrower than their un-linked siblings. */
+.cmom-stat-tile-link {
+  display: contents;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cmom-stat-tile-link:hover .cmom-stat-tile {
+  border-color: var(--cmom-accent, #2ea043);
+  box-shadow: var(--cmom-card-shadow-hover);
+  transform: translateY(-1px);
+}
+
+/* Each severity row inside AlarmsWidget, also a link (-> Anomalies tab,
+   pre-filtered to that severity). */
+.cmom-alarm-row-link:hover {
+  background: var(--cmom-hover, rgba(255, 255, 255, 0.05));
+}
+
 /*
  * Explorer tab's settings disclosure (ExplorerSettings.tsx) — replaces the
  * old slide-out Drawer. Closed by default; MUI child controls (Select,

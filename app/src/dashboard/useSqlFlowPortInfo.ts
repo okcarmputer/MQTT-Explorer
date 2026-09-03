@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { rendererRpc } from '../eventBus'
 import { RpcEvents, FlowMonitorPortInfoResponse, FlowMonitorPortDimension } from '../../../events/EventsV2'
+import { SQL_POLL_INTERVAL_MS } from './config'
 
 /**
  * Shape + dimension (e.g. "Diameter: 20.88 in") as display rows — shared by
@@ -29,7 +30,6 @@ export function formatPortAttributes(ports: FlowMonitorPortDimension[]): { label
   return rows
 }
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000 // pipe dimensions don't change — polling is just to pick up corrections
 const RPC_TIMEOUT_MS = 8000 // degrade to "unavailable" instead of hanging forever if nothing responds
 
 /**
@@ -69,7 +69,7 @@ export function useSqlFlowPortInfo(siteNumber: string | undefined): FlowMonitorP
     }
 
     fetchPortInfo()
-    const interval = setInterval(fetchPortInfo, POLL_INTERVAL_MS)
+    const interval = setInterval(fetchPortInfo, SQL_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true

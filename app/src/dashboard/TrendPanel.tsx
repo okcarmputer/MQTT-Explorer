@@ -3,7 +3,7 @@ import * as q from '../../../backend/src/Model'
 import TopicPlot from '../components/TopicPlot'
 import SeverityBadge from './SeverityBadge'
 import TimeRangeToggle, { DEFAULT_TIME_RANGE, TimeRangeOption } from './TimeRangeToggle'
-import { Severity, severityFromPayload } from './config'
+import { diurnalFlagColor, diurnalFlagLabel, Severity, severityFromPayload } from './config'
 import { hydrateMessageHistory } from '../helper/hydrateTopicHistory'
 import { extractPayloadTimestamp } from '../helper/extractPayloadTimestamp'
 
@@ -24,6 +24,14 @@ interface Props {
   // Pulled via direct SQL query (see useSqlFlowBaseline), shown alongside the
   // MQTT-published baseline below — distinct source, so labeled separately.
   sqlBaselineText?: string
+  // From diurnal_detector.py's hour-of-day engine (AnomalyDetection/FlowMonitors/...
+  // — see useDiurnalAnomalies.ts), a second, independent detector from the one
+  // .../anomaly and .../baseline above already read. The raw -3..4 levels are
+  // mapped through severityFromDiurnalLevel (config.ts) into its own badge
+  // (worst of the two levels), plus the raw numbers as an extra text line.
+  diurnalText?: string
+  diurnalAvgLevel?: number
+  diurnalNormalLevel?: number
   // Fixes the Y axis to this range instead of auto-scaling to the visible
   // data's own min/max — used for the Level channel so its axis always
   // matches the pipe's real diameter (e.g. [0, 10]), rather than shrinking
@@ -79,6 +87,9 @@ export default function TrendPanel({
   dotPath,
   unit,
   sqlBaselineText,
+  diurnalText,
+  diurnalAvgLevel,
+  diurnalNormalLevel,
   range,
   timeRangeOptions,
   defaultTimeRange,
@@ -122,6 +133,25 @@ export default function TrendPanel({
   const severity: Severity = anomalyNode
     ? severityFromPayload(anomalyNode.message?.payload?.toUnicodeString())
     : 'OK'
+  // "Monthly" distinguishes this from the separate diurnal (hour-of-day)
+  // badge below — both call themselves OK/LOW/MODERATE/CRITICAL, so without
+  // a label this one reads as a mystery status that "never changes" (it's
+  // real, it's just the monthly-vs-CHA-baseline detector, which moves far
+  // less often than the diurnal one). The tooltip gives the actual
+  // last-evaluated time, since the badge itself has no room for it.
+  const severityBadgeTitle = anomalyNode?.message?.received
+    ? `Monthly baseline comparison — last evaluated ${anomalyNode.message.received.toLocaleString()}`
+    : 'Monthly baseline comparison — no reading from the .../anomaly topic yet'
+  // Worst (largest-magnitude) of the two diurnal levels (hour-of-day avg vs.
+  // normalized shape) — shown via the repo's own label/color, not
+  // SeverityBadge, since flag 4 ("Temporary") is informational/blue and has
+  // no equivalent in the LOW/MODERATE/CRITICAL model (see config.ts).
+  const worstDiurnalLevel: number | undefined =
+    diurnalAvgLevel === undefined && diurnalNormalLevel === undefined
+      ? undefined
+      : Math.abs(diurnalNormalLevel ?? 0) > Math.abs(diurnalAvgLevel ?? 0)
+        ? diurnalNormalLevel
+        : diurnalAvgLevel
   const baselineText = baselineNode?.message?.payload?.toUnicodeString()
   const valueText = currentValueText(node, dotPath)
   // "Last seen" is when this app received the message; "Measurement" is when
@@ -167,7 +197,7 @@ export default function TrendPanel({
             {unit ? ` (${unit})` : ''}
           </strong>
         )}
-        <SeverityBadge severity={severity} />
+        <SeverityBadge severity={severity} label="Monthly" title={severityBadgeTitle} />
       </div>
       <TimeRangeToggle value={timeRange} onChange={setTimeRange} options={timeRangeOptions} />
       <div style={fillHeight ? { marginTop: 4, flex: '1 1 auto', minHeight: 0 } : { marginTop: 4 }}>
@@ -196,6 +226,16 @@ export default function TrendPanel({
       <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Baseline (MQTT): {baselineText || 'not available yet'}</div>
       {sqlBaselineText !== undefined && (
         <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Baseline (SQL): {sqlBaselineText}</div>
+      )}
+      {diurnalText !== undefined && (
+        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>Diurnal (hour-of-day): {diurnalText}</span>
+          {worstDiurnalLevel !== undefined && (
+            <span className="cmom-badge" style={{ minWidth: 84, textAlign: 'center', color: diurnalFlagColor(worstDiurnalLevel) }}>
+              {diurnalFlagLabel(worstDiurnalLevel)}
+            </span>
+          )}
+        </div>
       )}
     </div>
   )

@@ -22,6 +22,10 @@ export interface WetWellDimensionEntry {
   depthFt: number
   lengthFt: number | null // rectangular only
   widthFt: number | null // rectangular only
+  // Not part of the original "D x L x W" source list — left undefined for
+  // every entry below until the fuller records spreadsheet (with its own
+  // capacity column) is transcribed in.
+  capacityGallons?: number
 }
 
 const inches = (value: number): number => value / 12

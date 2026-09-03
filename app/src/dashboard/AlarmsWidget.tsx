@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Link } from 'react-router-dom'
 import { Severity, severityColors } from './config'
 import SeverityBadge from './SeverityBadge'
 
@@ -27,8 +28,27 @@ export default function AlarmsWidget({ counts }: Props) {
     <div className={`cmom-card cmom-stat-tile${hasCritical ? ' cmom-stat-tile--emphasis' : ''}`}>
       <div className="cmom-label">Alarms</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+        {/* Each row is its own link to the Anomalies tab, pre-filtered to
+            that severity (Anomalies.tsx reads the ?severity= query param on
+            mount) — a shift operator clicking "3 CRITICAL" lands straight on
+            just those 3, not the full unfiltered feed. */}
         {ALARM_SEVERITIES.map(severity => (
-          <div key={severity} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <Link
+            key={severity}
+            to={`/anomalies?severity=${severity}`}
+            className="cmom-alarm-row-link"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              textDecoration: 'none',
+              color: 'inherit',
+              borderRadius: 'var(--cmom-radius-sm, 4px)',
+              padding: '2px 4px',
+              margin: '-2px -4px',
+            }}
+          >
             <SeverityBadge severity={severity} />
             <span
               style={{
@@ -40,7 +60,7 @@ export default function AlarmsWidget({ counts }: Props) {
             >
               {counts[severity]}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

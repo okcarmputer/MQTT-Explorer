@@ -2,8 +2,9 @@ import * as React from 'react'
 import { connect } from 'react-redux'
 import { AppState } from '../../reducers'
 import * as q from '../../../../backend/src/Model'
-import { dashboardConfig, Severity } from '../config'
+import { dashboardConfig, Severity, severityOrder } from '../config'
 import { ChildTopic, useTopicChildren, useDeviceSeverities } from '../useTopicChildren'
+import { useDiurnalDeviceSeverities } from '../useAnomalyFeed'
 import { ConnectionHealth } from '../../reducers/Connection'
 import { DeviceSnapshot, useMqttStore } from './mqttStore'
 
@@ -14,10 +15,17 @@ interface Props {
   host?: string
 }
 
-function toSnapshotMap(devices: ChildTopic[], severities: Record<string, Severity>): Record<string, DeviceSnapshot> {
+function toSnapshotMap(
+  devices: ChildTopic[],
+  severities: Record<string, Severity>,
+  secondarySeverities?: Record<string, Severity>
+): Record<string, DeviceSnapshot> {
   const out: Record<string, DeviceSnapshot> = {}
   devices.forEach(d => {
-    out[d.key] = { key: d.key, lastUpdate: d.node.lastUpdate, severity: severities[d.key] ?? 'OK' }
+    const severity = severities[d.key] ?? 'OK'
+    const secondary = secondarySeverities?.[d.key] ?? 'OK'
+    const worst = severityOrder.indexOf(secondary) > severityOrder.indexOf(severity) ? secondary : severity
+    out[d.key] = { key: d.key, lastUpdate: d.node.lastUpdate, severity: worst }
   })
   return out
 }
@@ -33,8 +41,13 @@ function toSnapshotMap(devices: ChildTopic[], severities: Record<string, Severit
 function MqttStoreSync({ tree, connected, health, host }: Props) {
   const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix, dashboardConfig.flowMonitors.metadataChildren)
   const pumpDevices = useTopicChildren(tree, dashboardConfig.pumpStations.topicPrefix)
-  const flowSeverities = useDeviceSeverities(flowDevices)
+  const diurnalDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.diurnalTopicPrefix)
+  const flowSeverities = useDeviceSeverities(flowDevices, dashboardConfig.flowMonitors.anomalyTopicPrefix)
   const pumpSeverities = useDeviceSeverities(pumpDevices)
+  // diurnal_detector.py's hour-of-day engine is keyed by site number, same as
+  // flowDevices, so its per-site worst severity merges directly into the
+  // flow monitor snapshot (worst of the two detectors wins).
+  const diurnalSeverities = useDiurnalDeviceSeverities(diurnalDevices)
 
   const setConnection = useMqttStore(s => s.setConnection)
   const setFlowMonitors = useMqttStore(s => s.setFlowMonitors)
@@ -45,8 +58,8 @@ function MqttStoreSync({ tree, connected, health, host }: Props) {
   }, [connected, health, host, setConnection])
 
   React.useEffect(() => {
-    setFlowMonitors(toSnapshotMap(flowDevices, flowSeverities))
-  }, [flowDevices, flowSeverities, setFlowMonitors])
+    setFlowMonitors(toSnapshotMap(flowDevices, flowSeverities, diurnalSeverities))
+  }, [flowDevices, flowSeverities, diurnalSeverities, setFlowMonitors])
 
   React.useEffect(() => {
     setPumpStations(toSnapshotMap(pumpDevices, pumpSeverities))

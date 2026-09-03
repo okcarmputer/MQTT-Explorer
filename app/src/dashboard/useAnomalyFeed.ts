@@ -1,8 +1,9 @@
 import * as React from 'react'
 import * as q from '../../../backend/src/Model'
-import { dashboardConfig, Severity } from './config'
-import { ChildTopic, useTopicChildren } from './useTopicChildren'
+import { dashboardConfig, Severity, severityFromDiurnalLevel, severityOrder } from './config'
+import { ChildTopic, resolveAnomalyRoot, useTopicChildren } from './useTopicChildren'
 import { collectAnomalyTypes, isEntryDisplayable, resolveEntryDescription, resolveEntrySeverity } from './anomalyTypeScan'
+import { collectDiurnalAnomaliesForSite, DiurnalAnomaly, DIURNAL_MEASUREMENT_TYPES } from './useDiurnalAnomalies'
 
 export type DeviceType = 'Flow Monitor' | 'Pump Station'
 
@@ -24,6 +25,13 @@ export interface AnomalyEvent {
   severity: Severity
   previousSeverity: Severity
   description?: string
+  // Set only for diurnal_detector.py events (avg-vs-hour / normalized-shape
+  // levels, -3..4 — see useDiurnalAnomalies.ts's DiurnalAnomaly) so the card
+  // can render "Normal Anomaly Val" / "Average Anomaly Value" precisely
+  // instead of parsing them back out of `description`'s free text. Either
+  // can be undefined on its own (the detector doesn't always publish both).
+  normalAnomalyLevel?: number
+  avgAnomalyLevel?: number
 }
 
 /**
@@ -38,12 +46,13 @@ export interface AnomalyEvent {
  */
 function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceType, onEvent: (e: AnomalyEvent) => void) {
   const previous = React.useRef<Map<string, Severity>>(new Map())
+  const anomalyRootPrefix = deviceType === 'Flow Monitor' ? dashboardConfig.flowMonitors.anomalyTopicPrefix : undefined
 
   React.useEffect(() => {
     const unsubscribers: Array<() => void> = []
 
     devices.forEach(d => {
-      collectAnomalyTypes(d.node)
+      collectAnomalyTypes(d.node, 2, resolveAnomalyRoot(d, anomalyRootPrefix))
         .filter(isEntryDisplayable)
         .forEach(entry => {
           const trackingKey = `${d.key}::${entry.label}`
@@ -115,6 +124,102 @@ function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceTyp
   }, [devices, deviceType, onEvent])
 }
 
+// Worst of a diurnal reading's two independent levels (hour-of-day avg vs.
+// normalized shape), through severityFromDiurnalLevel's -3..4 -> Severity
+// mapping (config.ts) — same convention TrendPanel's badge uses.
+function diurnalWorstSeverity(d: DiurnalAnomaly): Severity {
+  const avg = severityFromDiurnalLevel(d.avgAnomalyLevel)
+  const normal = severityFromDiurnalLevel(d.normalAnomalyLevel)
+  return severityOrder.indexOf(normal) > severityOrder.indexOf(avg) ? normal : avg
+}
+
+function diurnalDescription(d: DiurnalAnomaly): string {
+  return `vs. hour avg ${d.avgAnomalyLevel ?? '?'}, vs. normal shape ${d.normalAnomalyLevel ?? '?'}`
+}
+
+/**
+ * Same transition-tracking shape as useDeviceTypeAnomalyEvents above, but for
+ * diurnal_detector.py's hour-of-day engine (AnomalyDetection/FlowMonitors/{site}/
+ * {Flow,Level,Velocity} — a separate topic tree/detector from the monthly
+ * flow_monitors/{site}/{channel}/anomaly one, see useDiurnalAnomalies.ts).
+ * Severity here isn't read from a sibling `.../anomaly` topic — it's derived
+ * from the reading's own avg/normal anomaly levels via diurnalWorstSeverity.
+ */
+function useDiurnalAnomalyEvents(diurnalDevices: ChildTopic[], onEvent: (e: AnomalyEvent) => void) {
+  const previous = React.useRef<Map<string, Severity>>(new Map())
+
+  React.useEffect(() => {
+    const unsubscribers: Array<() => void> = []
+
+    diurnalDevices.forEach(d => {
+      DIURNAL_MEASUREMENT_TYPES.forEach(measurementType => {
+        const node = d.node.edges[measurementType]?.target
+        if (!node) return
+
+        const trackingKey = `${d.key}::Diurnal/${measurementType}`
+        const anomalyType = `Diurnal/${measurementType}`
+
+        const evaluate = () => {
+          const parsed = collectDiurnalAnomaliesForSite(d.node, d.key).find(a => a.measurementType === measurementType)
+          return parsed
+            ? {
+                severity: diurnalWorstSeverity(parsed),
+                description: diurnalDescription(parsed),
+                normalAnomalyLevel: parsed.normalAnomalyLevel,
+                avgAnomalyLevel: parsed.avgAnomalyLevel,
+              }
+            : { severity: 'OK' as Severity, description: undefined, normalAnomalyLevel: undefined, avgAnomalyLevel: undefined }
+        }
+
+        const handler = () => {
+          const { severity, description, normalAnomalyLevel, avgAnomalyLevel } = evaluate()
+          const prev = previous.current.get(trackingKey) ?? 'OK'
+          if (severity !== prev) {
+            previous.current.set(trackingKey, severity)
+            onEvent({
+              id: `${trackingKey}-${Date.now()}`,
+              time: Date.now(),
+              deviceType: 'Flow Monitor',
+              deviceKey: d.key,
+              anomalyType,
+              severity,
+              previousSeverity: prev,
+              description,
+              normalAnomalyLevel,
+              avgAnomalyLevel,
+            })
+          }
+        }
+
+        // Seed known state on (re)mount, same "surface what's already active"
+        // rationale as useDeviceTypeAnomalyEvents above.
+        const { severity: initialSeverity, description: initialDescription, normalAnomalyLevel: initialNormal, avgAnomalyLevel: initialAvg } = evaluate()
+        const alreadyTracked = previous.current.has(trackingKey)
+        previous.current.set(trackingKey, initialSeverity)
+        if (!alreadyTracked && initialSeverity !== 'OK') {
+          onEvent({
+            id: `${trackingKey}-initial-${Date.now()}`,
+            time: Date.now(),
+            deviceType: 'Flow Monitor',
+            deviceKey: d.key,
+            anomalyType,
+            severity: initialSeverity,
+            previousSeverity: 'OK',
+            description: initialDescription,
+            normalAnomalyLevel: initialNormal,
+            avgAnomalyLevel: initialAvg,
+          })
+        }
+
+        node.onMessage.subscribe(handler)
+        unsubscribers.push(() => node.onMessage.unsubscribe(handler))
+      })
+    })
+
+    return () => unsubscribers.forEach(unsub => unsub())
+  }, [diurnalDevices, onEvent])
+}
+
 /**
  * Combines Flow Monitor and Pump Station anomaly-type transitions into one
  * newest-first feed, plus the raw device lists (so Overview can derive
@@ -123,6 +228,7 @@ function useDeviceTypeAnomalyEvents(devices: ChildTopic[], deviceType: DeviceTyp
 export function useAnomalyFeed(tree?: q.Tree<any>) {
   const flowDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.topicPrefix, dashboardConfig.flowMonitors.metadataChildren)
   const pumpDevices = useTopicChildren(tree, dashboardConfig.pumpStations.topicPrefix)
+  const diurnalDevices = useTopicChildren(tree, dashboardConfig.flowMonitors.diurnalTopicPrefix)
   const [events, setEvents] = React.useState<AnomalyEvent[]>([])
 
   const pushEvent = React.useCallback((e: AnomalyEvent) => {
@@ -131,8 +237,9 @@ export function useAnomalyFeed(tree?: q.Tree<any>) {
 
   useDeviceTypeAnomalyEvents(flowDevices, 'Flow Monitor', pushEvent)
   useDeviceTypeAnomalyEvents(pumpDevices, 'Pump Station', pushEvent)
+  useDiurnalAnomalyEvents(diurnalDevices, pushEvent)
 
-  return { events, flowDevices, pumpDevices }
+  return { events, flowDevices, pumpDevices, diurnalDevices }
 }
 
 export interface CurrentAnomaly {
@@ -158,14 +265,15 @@ export interface CurrentAnomaly {
  * useFleetAnomalySeverities) so "what's currently wrong" always reflects
  * live state, not session/transition history.
  */
-export function useCurrentAnomalies(flowDevices: ChildTopic[], pumpDevices: ChildTopic[]): CurrentAnomaly[] {
+export function useCurrentAnomalies(flowDevices: ChildTopic[], pumpDevices: ChildTopic[], diurnalDevices: ChildTopic[] = []): CurrentAnomaly[] {
   const [anomalies, setAnomalies] = React.useState<CurrentAnomaly[]>([])
 
   React.useEffect(() => {
     function scan(devices: ChildTopic[], deviceType: DeviceType): CurrentAnomaly[] {
+      const anomalyRootPrefix = deviceType === 'Flow Monitor' ? dashboardConfig.flowMonitors.anomalyTopicPrefix : undefined
       const out: CurrentAnomaly[] = []
       devices.forEach(d => {
-        collectAnomalyTypes(d.node)
+        collectAnomalyTypes(d.node, 2, resolveAnomalyRoot(d, anomalyRootPrefix))
           .filter(isEntryDisplayable)
           .forEach(entry => {
             const severity = resolveEntrySeverity(entry)
@@ -185,15 +293,96 @@ export function useCurrentAnomalies(flowDevices: ChildTopic[], pumpDevices: Chil
       return out
     }
 
+    function scanDiurnal(devices: ChildTopic[]): CurrentAnomaly[] {
+      const out: CurrentAnomaly[] = []
+      devices.forEach(d => {
+        collectDiurnalAnomaliesForSite(d.node, d.key).forEach(parsed => {
+          const severity = diurnalWorstSeverity(parsed)
+          if (severity !== 'OK') {
+            const node = d.node.edges[parsed.measurementType]?.target
+            out.push({
+              id: `Flow Monitor::${d.key}::Diurnal/${parsed.measurementType}`,
+              deviceType: 'Flow Monitor',
+              deviceKey: d.key,
+              anomalyType: `Diurnal/${parsed.measurementType}`,
+              severity,
+              lastUpdate: node?.lastUpdate,
+              description: diurnalDescription(parsed),
+            })
+          }
+        })
+      })
+      return out
+    }
+
     function refresh() {
-      setAnomalies([...scan(flowDevices, 'Flow Monitor'), ...scan(pumpDevices, 'Pump Station')])
+      setAnomalies([...scan(flowDevices, 'Flow Monitor'), ...scan(pumpDevices, 'Pump Station'), ...scanDiurnal(diurnalDevices)])
     }
 
     refresh()
     // Same 2s cadence as useFleetAnomalySeverities/useDeviceSeverities.
     const interval = setInterval(refresh, 2000)
     return () => clearInterval(interval)
-  }, [flowDevices, pumpDevices])
+  }, [flowDevices, pumpDevices, diurnalDevices])
 
   return anomalies
+}
+
+/**
+ * Fleet-wide diurnal severity rollup, parallel to useFleetAnomalySeverities
+ * (useTopicChildren.ts) for the monthly detector — used to fold diurnal
+ * anomalies into Overview's LOW/MODERATE/CRITICAL tile counts.
+ */
+export function useDiurnalSeverities(diurnalDevices: ChildTopic[]): Severity[] {
+  const [severities, setSeverities] = React.useState<Severity[]>([])
+
+  React.useEffect(() => {
+    function refresh() {
+      const all: Severity[] = []
+      diurnalDevices.forEach(d => {
+        collectDiurnalAnomaliesForSite(d.node, d.key).forEach(parsed => all.push(diurnalWorstSeverity(parsed)))
+      })
+      setSeverities(all)
+    }
+
+    refresh()
+    const interval = setInterval(refresh, 2000)
+    return () => clearInterval(interval)
+  }, [diurnalDevices])
+
+  return severities
+}
+
+/**
+ * Per-device diurnal severity rollup (site number -> worst diurnal severity
+ * across Flow/Level/Velocity), parallel to useDeviceSeverities
+ * (useTopicChildren.ts) for the monthly detector — merged into
+ * MqttStoreSync's flow monitor snapshot so device cards/table rows reflect
+ * diurnal anomalies too, not just the monthly detector's.
+ */
+export function useDiurnalDeviceSeverities(diurnalDevices: ChildTopic[]): Record<string, Severity> {
+  const [severities, setSeverities] = React.useState<Record<string, Severity>>({})
+
+  React.useEffect(() => {
+    function refresh() {
+      const next: Record<string, Severity> = {}
+      diurnalDevices.forEach(d => {
+        let worst: Severity = 'OK'
+        collectDiurnalAnomaliesForSite(d.node, d.key).forEach(parsed => {
+          const severity = diurnalWorstSeverity(parsed)
+          if (severityOrder.indexOf(severity) > severityOrder.indexOf(worst)) {
+            worst = severity
+          }
+        })
+        next[d.key] = worst
+      })
+      setSeverities(next)
+    }
+
+    refresh()
+    const interval = setInterval(refresh, 2000)
+    return () => clearInterval(interval)
+  }, [diurnalDevices])
+
+  return severities
 }

@@ -43,6 +43,18 @@ export const severityColors: Record<Severity, string> = {
 // claim about device health — see the widget's own label/copy.
 export const staleDeviceThresholdMinutes = 30
 
+// Shared refresh cadence for every hook that reads SQL Server directly
+// (baseline, history, port info, wet well info, diurnal) rather than MQTT —
+// one constant so all SQL-backed panels stay in sync with each other instead
+// of drifting to different intervals over time.
+export const SQL_POLL_INTERVAL_MS = 5 * 60 * 1000
+
+// Slower cadence for GIS-sourced hooks (wet well info, manhole info) — this
+// data comes from asset-management editing, not live telemetry, so it
+// changes rarely; polling once a day instead of every 5 minutes is plenty
+// and cuts needless load on the SDE database.
+export const SQL_GIS_POLL_INTERVAL_MS = 24 * 60 * 60 * 1000
+
 export const dashboardConfig = {
   flowMonitors: {
     // Confirmed against fm_mqtt.py: publishes to flow_monitors/prod/{site_number}/{channel_type},
@@ -58,12 +70,29 @@ export const dashboardConfig = {
     // as a 182nd "site". Surfaced separately via the Flow Monitors tab's
     // "Data Channel Types" button (DataChannelTypes.tsx) instead.
     metadataChildren: ['data_channel_types'],
-    dataChannelTypesPath: 'flow_monitors/prod/data_channel_types',
+    // Confirmed against the broker's retained set: fm_mqtt.py actually
+    // publishes this catalog at flow_monitors/data_channel_types/{native,virtual}/{id}
+    // — one level up from the site topics, not under "prod" alongside them.
+    dataChannelTypesPath: 'flow_monitors/data_channel_types',
     // flow_monitors/detector.py publishes flow_monitors/{site}/{channel}/anomaly
     // and .../baseline (retained) every DETECTOR_INTERVAL_MINUTES — see the
     // anomaly-detection repo's DASHBOARD_INTEGRATION_INSTRUCTIONS.md. A
     // channel with no reading that cycle is skipped, not published as "OK",
     // so a missing leaf here just means "no comparison yet," not "healthy."
+    // NOTE this sits at flow_monitors/{site}/... — NOT under topicPrefix's
+    // "prod" segment — because detector.py publishes it as a sibling tree to
+    // fm_mqtt.py's flow_monitors/prod/{site}/... value topics, not inside it.
+    // anomalyTypeScan's collectAnomalyTypes/deviceSeverity need this passed
+    // separately so they look for the "anomaly" leaf in the right tree.
+    anomalyTopicPrefix: 'flow_monitors',
+    // AnomalyDetection/FlowMonitors/diurnal_detector.py's hour-of-day
+    // detector — a second, independent engine from the one above, on a
+    // deliberately separate topic tree (different casing/namespace). One
+    // retained JSON message per site per measurement type; see
+    // DASHBOARD_INTEGRATION_INSTRUCTIONS.md's "diurnal flow anomalies"
+    // section for the payload shape and the -3..3 (both-signs-meaningful)
+    // severity range.
+    diurnalTopicPrefix: 'AnomalyDetection/FlowMonitors',
   },
   pumpStations: {
     // Confirmed against opc-logger's logger.py: build_topic() publishes to
@@ -121,4 +150,61 @@ export function severityFromPayload(payload: string | undefined | null): Severit
   if (upper.includes('MODERATE')) return 'MODERATE'
   if (upper.includes('LOW')) return 'LOW'
   return 'OK'
+}
+
+// diurnal_detector.py's flag_level() ladder, per the anomaly-detection repo's
+// own table:
+//   -3/3 = Critical Alert (Red)   value >= peak_mean ± 3σ
+//   -2/2 = Moderate Alert (Orange) value >= peak_mean ± 2σ
+//   -1/1 = Low Alert (Yellow)      value >= peak_mean ± 1σ
+//    0   = None (Green)            within ±1σ of baseline
+//    4   = Temporary (Blue)        non-anomalous state change (e.g. location
+//          update) — explicitly informational, NOT severity-ranked.
+// Maps by magnitude onto the app's LOW/MODERATE/CRITICAL vocabulary so
+// diurnal anomalies can share severityColors/severityOrder/alarm counts with
+// every other severity source; 4 maps to OK since it isn't a severity at all
+// (see diurnalFlagLabel/diurnalFlagColor below for its own "Temporary"/blue
+// display, which callers should check for separately when they want to show
+// it as informational rather than silently dropping it).
+export function severityFromDiurnalLevel(level: number | undefined | null): Severity {
+  if (level === undefined || level === null || Number.isNaN(level) || level === 4) {
+    return 'OK'
+  }
+
+  const magnitude = Math.abs(level)
+  if (magnitude >= 3) return 'CRITICAL'
+  if (magnitude === 2) return 'MODERATE'
+  if (magnitude === 1) return 'LOW'
+  return 'OK'
+}
+
+// Exact repo palette for the diurnal ladder's own label/color, distinct from
+// severityColors — kept separate because flag 4 ("Temporary") has no
+// equivalent in the LOW/MODERATE/CRITICAL model above (blue, informational,
+// not an alert), so it can't be represented as a Severity at all.
+const DIURNAL_FLAG_COLORS: Record<number, string> = {
+  [-3]: '#f44336',
+  [-2]: '#ff9800',
+  [-1]: '#ffc107',
+  0: '#4caf50',
+  1: '#ffc107',
+  2: '#ff9800',
+  3: '#f44336',
+  4: '#2196f3',
+}
+
+export function diurnalFlagLabel(level: number | undefined | null): string {
+  if (level === undefined || level === null || Number.isNaN(level)) return 'No comparison yet'
+  if (level === 4) return 'Temporary'
+  if (level === 0) return 'None'
+  const magnitude = Math.abs(level)
+  if (magnitude === 3) return 'Critical Alert'
+  if (magnitude === 2) return 'Moderate Alert'
+  if (magnitude === 1) return 'Low Alert'
+  return `Level ${level}`
+}
+
+export function diurnalFlagColor(level: number | undefined | null): string {
+  if (level === undefined || level === null || Number.isNaN(level)) return severityColors.OK
+  return DIURNAL_FLAG_COLORS[level] ?? severityColors.OK
 }

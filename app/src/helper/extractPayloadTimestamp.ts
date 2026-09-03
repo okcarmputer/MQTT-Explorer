@@ -50,7 +50,7 @@ export function extractPayloadTimestamp(json: unknown): Date | undefined {
 // genuinely carries no zone/offset of its own restores the intended UTC
 // reading. Anything else (already has an offset, or isn't ISO-shaped at
 // all) is left untouched.
-function normalizeToUtcIfNoOffset(value: string): string {
+export function normalizeToUtcIfNoOffset(value: string): string {
   const trimmed = value.trim()
   const isoDateTimeNoOffset = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
   return isoDateTimeNoOffset.test(trimmed) ? `${trimmed.replace(' ', 'T')}Z` : trimmed

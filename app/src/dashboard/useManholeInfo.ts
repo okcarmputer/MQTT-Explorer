@@ -1,89 +1,53 @@
 import * as React from 'react'
-import * as q from '../../../backend/src/Model'
-import { usePollingToFetchTreeNode } from '../components/helper/usePollingToFetchTreeNode'
+import { rendererRpc } from '../eventBus'
+import { RpcEvents, ManholeRecord } from '../../../events/EventsV2'
+import { SQL_GIS_POLL_INTERVAL_MS } from './config'
 
-const MANHOLE_INFO_PATH = 'flow_monitors/manhole_info'
+export type { ManholeRecord }
 
-/**
- * One row of the manhole/flow-meter attribute table. Field names mirror the
- * source table's columns rather than being renamed to match this app's usual
- * camelCase-from-MQTT convention, since this data originates from a real SQL
- * table with these same columns (see the anomaly-detection repo's
- * flow_monitors/manhole_data.json — that repo owns the values; edit there).
- */
-export interface ManholeRecord {
-  manholeObjectId: number | null
-  manholeFacilityId: string | null
-  manholeLocation: string | null
-  manholeInstallDate: string | null
-  rimElevation: number | null
-  manholeAccessDiameter: number | null
-  manholeDepthFt: number | null
-  manholeStatus: string | null
-  manholeX: number | null
-  manholeY: number | null
-  flowMeterX: number | null
-  flowMeterY: number | null
-  comment: string | null
-  flowMeterObjectId: number | null
-  flowMeterId: string | null
-  wrrfBasin: string | null
-  installMhId: string | null
-  installCurrentMhId: string | null
-  flowMeterInstallDate: string | null
-  flowMeterStatus: string | null
-  diameter: number | null
-  flowMeterLocationDesc: string | null
-  serialNum: string | null
-  phase: string | null
-}
+const RPC_TIMEOUT_MS = 8000 // degrade to "unavailable" instead of hanging forever if nothing responds
 
 function normalize(v: string | null | undefined): string {
   return (v ?? '').trim().toLowerCase()
 }
 
-function readManholeRecord(node: q.TreeNode<any>): ManholeRecord | undefined {
-  const payload = node.message?.payload?.toUnicodeString()
-  if (!payload) {
-    return undefined
-  }
-  try {
-    return JSON.parse(payload) as ManholeRecord
-  } catch {
-    return undefined
-  }
-}
-
 /**
- * All published manhole/flow-meter records, live — one retained child per
- * flowMeterId under flow_monitors/manhole_info, published by the
- * anomaly-detection repo's flow_monitors/publish_manhole_info.py (see that
- * repo's README). Re-renders on any child arriving/updating.
+ * Direct SQL Server read of every REWAFLOWMETER/SMANHOLE record (see
+ * src/sqlReporting.ts's getManholeInfo) — replaces the earlier MQTT-published
+ * flow_monitors/manhole_info topic tree as this app's source for manhole/flow
+ * meter GIS attributes. Bulk fetch, polled daily (SQL_GIS_POLL_INTERVAL_MS —
+ * this is asset-management data, not live telemetry), same "undefined while
+ * loading/unavailable, not an error" contract as the other SQL-backed hooks.
  */
-function useManholeRecords(tree: q.Tree<any> | undefined): ManholeRecord[] {
-  const parentNode = usePollingToFetchTreeNode(tree, MANHOLE_INFO_PATH)
-  const [, setTick] = React.useState(0)
+function useManholeRecords(): ManholeRecord[] | undefined {
+  const [records, setRecords] = React.useState<ManholeRecord[] | undefined>(undefined)
 
   React.useEffect(() => {
-    if (!parentNode) {
-      return
-    }
-    const rerender = () => setTick(t => t + 1)
-    parentNode.onEdgesChange.subscribe(rerender)
-    const leafUnsubs = parentNode.edgeArray.map(edge => {
-      edge.target.onMessage.subscribe(rerender)
-      return () => edge.target.onMessage.unsubscribe(rerender)
-    })
-    return () => {
-      parentNode.onEdgesChange.unsubscribe(rerender)
-      leafUnsubs.forEach(unsub => unsub())
-    }
-  }, [parentNode])
+    let cancelled = false
 
-  if (!parentNode) {
-    return []
-  }
-  return parentNode.edgeArray.map(edge => readManholeRecord(edge.target)).filter((r): r is ManholeRecord => Boolean(r))
+    async function fetchRecords() {
+      try {
+        const response = await rendererRpc.call(RpcEvents.getManholeInfo, undefined, RPC_TIMEOUT_MS)
+        if (!cancelled) {
+          setRecords(response.records)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRecords(undefined)
+        }
+      }
+    }
+
+    fetchRecords()
+    const interval = setInterval(fetchRecords, SQL_GIS_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  return records
 }
 
 /**
@@ -101,10 +65,11 @@ function useManholeRecords(tree: q.Tree<any> | undefined): ManholeRecord[] {
  * to the next candidate — every (candidate, field) combination is checked
  * before giving up, rather than surfacing nothing at all.
  */
-export function useManholeInfo(tree: q.Tree<any> | undefined, candidateKeys: (string | undefined)[]): ManholeRecord | undefined {
-  const records = useManholeRecords(tree)
+export function useManholeInfo(candidateKeys: (string | undefined)[]): ManholeRecord | undefined {
+  const records = useManholeRecords()
   const cacheKey = candidateKeys.join(' ')
   return React.useMemo(() => {
+    if (!records) return undefined
     const candidates = candidateKeys.map(normalize).filter(Boolean)
     return candidates.reduce<ManholeRecord | undefined>(
       (found, key) => found
