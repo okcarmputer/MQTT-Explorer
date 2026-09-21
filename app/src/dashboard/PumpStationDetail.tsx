@@ -3,13 +3,15 @@ import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
 import ValuePanel from './ValuePanel'
 import DigitalInputRow from './DigitalInputRow'
+import DeviceHeader from './DeviceHeader'
 import { readGroupFields } from './pumpStationLeaf'
-import { usePumpStationSummary, liveWetWellLevelFt } from './usePumpStationSummary'
+import { usePumpStationSummary, resolveWetWellLevelFt } from './usePumpStationSummary'
 import { useSqlWetWellInfo } from './useSqlWetWellInfo'
 import WetWellTankGauge from './widgets/WetWellTankGauge'
 import { RuntimeClock } from './widgets/Readings'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
 import { useFitRowHeight } from './widgets/useFitRowHeight'
+import { buildPumpStationLayout, layoutKindFor } from './pumpStationLayout'
 
 interface Props {
   deviceKey: string
@@ -25,16 +27,6 @@ function formatAnalogInputTitle(key: string, description: string): string {
   const match = key.match(/^AnalogInput(\d+)$/i)
   const label = match ? `Analog Input ${match[1]}` : key
   return description ? `${label}: ${description}` : label
-}
-
-// Splits `totalW` columns evenly across `count` cards in one row — one card
-// takes the whole row, two split it in half, etc. — with any leftover
-// column (12 doesn't always divide evenly) handed to the first cards rather
-// than left as dead space.
-function splitWidths(totalW: number, count: number): number[] {
-  const base = Math.floor(totalW / count)
-  const remainder = totalW - base * count
-  return Array.from({ length: count }, (_, i) => base + (i < remainder ? 1 : 0))
 }
 
 // Same label:value list style as ManholeInfoCard.tsx's own Row —
@@ -235,124 +227,45 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
     summary.analogInputs.find(a => a.label.toLowerCase().includes('wet well level')) ??
     summary.analogInputs.find(a => a.label.toLowerCase().includes('level'))
 
-  // wetWell.currentLevelFt only ever comes from a direct SQL Server read
-  // (OPCAudit_Live) — when SQL reporting isn't configured, or that join
-  // doesn't resolve for this station, it's always null even though the live
-  // MQTT reading (already shown in the Analog Inputs chart above) is right
-  // there. Fall back to it so the gauge isn't stuck at "N/A" whenever SQL
-  // isn't in the picture. Shared with the list-card mini gauge — see
-  // liveWetWellLevelFt in usePumpStationSummary.ts.
-  const liveLevelFt = React.useMemo(() => liveWetWellLevelFt(summary), [summary])
+  // One authoritative current level shared by the gauge and everything else
+  // on this page — live MQTT first, SQL only as a fallback. See
+  // resolveWetWellLevelFt's own comment for why that ordering is the fix for
+  // the gauge going stale while the chart kept moving.
+  const currentLevelFt = React.useMemo(
+    () => resolveWetWellLevelFt(summary, wetWell?.currentLevelFt),
+    [summary, wetWell?.currentLevelFt]
+  )
 
-  const currentLevelFt = wetWell?.currentLevelFt ?? liveLevelFt
-
-  // Row 1 is reserved for the Wet Well gauge plus one resizable card per
-  // Analog Input chart (each fillHeight+bare, same as the Flow Monitor
-  // detail page's Level/Velocity/Flow cards) — the gauge keeps its original
-  // fixed width (COL_W); analog charts fill whatever's left, wrapping onto
-  // additional full-width rows of their own once more than 3 of them show
-  // up (3 is what fits next to the gauge at COL_W each). Hoisted above the
-  // panels IIFE below (rather than declared inside it) so totalRows can feed
-  // useFitRowHeight — the two need to agree on the same row math.
-  const ROW1_H = 17
-  const COL_W = 3 // matches the Wet Well gauge's original width
-  const MIN_GRAPH_W = 3 // narrowest a graph card is allowed to get before wrapping to another row
-  const GRAPH_SLOTS_FIRST_ROW = Math.floor((12 - COL_W) / MIN_GRAPH_W) // 3, next to the gauge
-  const GRAPH_COLS_PER_FULL_ROW = Math.floor(12 / MIN_GRAPH_W) // 4, once the gauge's row is behind us
-
-  // With exactly one graph, the leftover width next to the gauge is wide
-  // enough to waste — Digital Inputs takes that space instead (row 1's
-  // third column) rather than sharing row 2 with Wet Well Info/Unit Status.
-  const singleGraph = analogInputs.length === 1
-  const RIGHT_COL_W = 3
-
-  const analogCount = Math.max(analogInputs.length, 1) // placeholder counts as one slot
-  const overflowCount = Math.max(0, analogCount - GRAPH_SLOTS_FIRST_ROW)
-  const overflowRows = Math.ceil(overflowCount / GRAPH_COLS_PER_FULL_ROW)
-  const graphRowsHeight = ROW1_H * (1 + overflowRows)
-  // Row 2's own height is autoHeight-corrected per panel once mounted (see
-  // PanelGrid) — this is only a starting estimate so useFitRowHeight has a
-  // reasonable totalRows to fit against before that correction happens.
-  const ROW2_ESTIMATE_H = 12
-  const totalRows = graphRowsHeight + ROW2_ESTIMATE_H
-  const { ref: fitRef, rowHeight } = useFitRowHeight(totalRows, 32)
+  // Placement comes from the explicit per-analog-count layouts in
+  // pumpStationLayout.ts rather than being packed at render time, so the
+  // specified card-to-card alignments actually hold. See that module's header.
+  const layout = React.useMemo(() => buildPumpStationLayout(analogInputs.length), [analogInputs.length])
+  const layoutKind = layoutKindFor(analogInputs.length)
+  const { ref: fitRef, rowHeight } = useFitRowHeight(layout.totalRows, 32)
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={onBack}
-        style={{
-          marginBottom: 'var(--cmom-space-3, 12px)',
-          padding: '4px 12px',
-          borderRadius: 'var(--cmom-radius-sm, 4px)',
-          border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
-          background: 'transparent',
-          color: 'inherit',
-          cursor: 'pointer',
-        }}
-      >
-        &larr; Back
-      </button>
-      <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <span>
-          Serial: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
-        </span>
-        {Boolean(summary.unitStatus['Description'] || summary.unitStatus['Location']) && (
-          <span style={{ fontSize: '0.85em', fontWeight: 700, opacity: 0.95, textAlign: 'right' }}>
-            {[summary.unitStatus['Description'], summary.unitStatus['Location']].filter(Boolean).join(' — ')}
-          </span>
-        )}
-      </h2>
+      <DeviceHeader
+        titleParts={[summary.unitStatus['Description'], summary.unitStatus['Location']]}
+        identifier={deviceKey}
+        onBack={onBack}
+      />
 
       <div ref={fitRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
       {(() => {
-        const rowCounts = [Math.min(analogCount, GRAPH_SLOTS_FIRST_ROW)]
-        let remaining = analogCount - rowCounts[0]
-        while (remaining > 0) {
-          const n = Math.min(remaining, GRAPH_COLS_PER_FULL_ROW)
-          rowCounts.push(n)
-          remaining -= n
-        }
-        const rowLayouts = rowCounts.map((count, rowIndex) =>
-          splitWidths(rowIndex === 0 ? 12 - COL_W : 12, count)
-        )
-
-        function graphSlotLayout(index: number): { x: number; y: number; w: number } {
-          let remainingIndex = index
-          for (let rowIndex = 0; rowIndex < rowCounts.length; rowIndex++) {
-            const widths = rowLayouts[rowIndex]
-            if (remainingIndex < widths.length) {
-              const xOffset = rowIndex === 0 ? COL_W : 0
-              const x = xOffset + widths.slice(0, remainingIndex).reduce((a, b) => a + b, 0)
-              return { x, y: ROW1_H * rowIndex, w: widths[remainingIndex] }
-            }
-            remainingIndex -= widths.length
-          }
-          // Unreachable given rowCounts is built to cover every index, but
-          // keeps TypeScript happy about a guaranteed return.
-          return { x: COL_W, y: 0, w: MIN_GRAPH_W }
-        }
-
         const analogPanels: PanelSpec[] = analogInputs.map((a, i) => {
           const scaledValueNode = a.node.edges['ScaledValue']?.target
-          // Single-graph case: narrower than the general graphSlotLayout
-          // would give it (which stretches a lone graph across the whole
-          // 12 - COL_W remainder) — leave room on the right for the
-          // Pump Runtimes/Power & Temperature/Unit Status stack instead.
-          const { x, y, w } = singleGraph
-            ? { x: COL_W, y: 0, w: 12 - COL_W - RIGHT_COL_W }
-            : graphSlotLayout(i)
           const panel: PanelSpec = {
             id: `analog-${a.key}`,
             title: formatAnalogInputTitle(a.key, a.json.Description),
-            defaultLayout: { x, y, w, h: ROW1_H },
+            defaultLayout: layout.analog[i],
             content: scaledValueNode ? (
               <TrendPanel
                 title={formatAnalogInputTitle(a.key, a.json.Description)}
                 node={scaledValueNode}
                 dotPath="value"
                 unit={a.json.ScaledUnits}
+                stateDescription={a.json.StateDescription}
                 fillHeight
                 bare
               />
@@ -363,12 +276,12 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           return panel
         })
         const analogInputsPlaceholder: PanelSpec[] =
-          analogInputs.length === 0
+          analogInputs.length === 0 && layout.analogPlaceholder
             ? [
                 {
                   id: 'analog-inputs-empty',
                   title: 'Analog Inputs',
-                  defaultLayout: { x: COL_W, y: 0, w: 12 - COL_W, h: ROW1_H },
+                  defaultLayout: layout.analogPlaceholder,
                   content: <div style={{ opacity: 0.7 }}>No named, non-channel analog inputs configured.</div>,
                 },
               ]
@@ -378,7 +291,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           {
             id: 'wet-well-gauge',
             title: 'Wet Well',
-            defaultLayout: { x: 0, y: 0, w: COL_W, h: ROW1_H },
+            defaultLayout: layout.fixed['wet-well-gauge'],
             content: (
               <div style={{ height: '100%' }}>
                 <WetWellTankGauge
@@ -543,84 +456,61 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
             </div>
           )
 
-        // Row 2: Wet Well Info / Unit Status / (Digital Inputs, only when it
-        // didn't already land in row 1's leftover column, see singleGraph
-        // below) / Power & Temperature+Pump Runtimes stacked in one column —
-        // short, side-by-side columns (evenly split via splitWidths) instead
-        // of full-width stacked rows, and every one of them autoHeight so
-        // each sizes to its own real content instead of a fixed guess that
-        // leaves empty space below it (Power & Temperature/Pump Runtimes
-        // used to be a fixed powerTempH=5 regardless of actual content).
-        const row2Y = singleGraph ? ROW1_H : graphRowsHeight
-        const row2Cols = singleGraph ? 3 : 4
-        const row2Widths = splitWidths(12, row2Cols)
-        // Cumulative x offset for column i (row2Widths[0] + ... + row2Widths[i-1]).
-        const row2X: number[] = []
-        for (let i = 0; i < row2Widths.length; i++) {
-          row2X.push(i === 0 ? 0 : row2X[i - 1] + row2Widths[i - 1])
-        }
-
-        if (singleGraph) {
-          // With only one graph, the leftover width next to the gauge in
-          // row 1 fits Digital Inputs — so row 2 only needs Wet Well Info /
-          // Unit Status / the Power & Temperature+Pump Runtimes stack.
-          panels.push({
-            id: 'digital-inputs',
-            title: 'Digital Inputs',
-            defaultLayout: { x: 12 - RIGHT_COL_W, y: 0, w: RIGHT_COL_W, h: ROW1_H },
-            autoHeight: true,
-            content: digitalInputsContent,
-          })
-        } else {
-          panels.push({
-            id: 'digital-inputs',
-            title: 'Digital Inputs',
-            defaultLayout: { x: row2X[2], y: row2Y, w: row2Widths[2], h: ROW2_ESTIMATE_H },
-            autoHeight: true,
-            content: digitalInputsContent,
-          })
-        }
-
-        const stackColIndex = singleGraph ? 2 : 3
-        const stackX = row2X[stackColIndex]
-        const stackW = row2Widths[stackColIndex]
-
+        // Row 2 and the right-hand column both come straight from the chosen
+        // layout. None of these are autoHeight: these layouts specify cards
+        // that must match each other's heights ("the stacked pair equals the
+        // cards beside it", "Digital Inputs' bottom aligns with the charts"),
+        // and per-card content measurement actively fought those constraints
+        // — it was also the feedback loop behind cards drifting on every live
+        // update. Content taller than its card scrolls inside the card.
         panels.push(
+          {
+            id: 'digital-inputs',
+            title: 'Digital Inputs',
+            defaultLayout: layout.fixed['digital-inputs'],
+            content: digitalInputsContent,
+          },
           {
             id: 'wet-well-info',
             title: 'Wet Well Info',
-            defaultLayout: { x: row2X[0], y: row2Y, w: row2Widths[0], h: ROW2_ESTIMATE_H },
-            autoHeight: true,
+            defaultLayout: layout.fixed['wet-well-info'],
             content: wetWellInfoContent,
           },
           {
             id: 'unit-status',
             title: 'Unit Status',
-            defaultLayout: { x: row2X[1], y: row2Y, w: row2Widths[1], h: ROW2_ESTIMATE_H },
-            autoHeight: true,
+            defaultLayout: layout.fixed['unit-status'],
             content: unitStatusContent,
           },
-          // Power & Temperature and Pump Runtimes stack in the last column
-          // rather than each taking a full-width row — both autoHeight, so
-          // each fits its own real content instead of a tall fixed guess
-          // that left blank card space below a short reading.
           {
             id: 'power-temperature',
             title: 'Power & Temperature',
-            defaultLayout: { x: stackX, y: row2Y, w: stackW, h: Math.ceil(ROW2_ESTIMATE_H / 2) },
-            autoHeight: true,
+            defaultLayout: layout.fixed['power-temperature'],
             content: powerTempContent,
           },
           {
             id: 'pump-runtimes',
             title: 'Pump Runtimes',
-            defaultLayout: { x: stackX, y: row2Y + Math.ceil(ROW2_ESTIMATE_H / 2), w: stackW, h: Math.floor(ROW2_ESTIMATE_H / 2) },
-            autoHeight: true,
+            defaultLayout: layout.fixed['pump-runtimes'],
             content: pumpRuntimesContent,
           }
         )
 
-        return <PanelGrid storageKey="cmom-layout-pump-station-detail-v2" panels={panels} rowHeight={rowHeight} />
+        // Storage key is per layout kind, not one key for every pump station.
+        // Sharing a single key was what made cards appear to wander: a saved
+        // arrangement from a 3-analog station satisfied loadLayout's "has an
+        // entry for every current panel" check on a 2-analog station, so the
+        // smaller station silently inherited the larger one's positions, got
+        // corrected, and wrote the correction back — each station undoing the
+        // last. Keyed by kind, a station only ever restores an arrangement
+        // authored for its own shape.
+        return (
+          <PanelGrid
+            storageKey={`cmom-layout-pump-station-detail-v3-${layoutKind}`}
+            panels={panels}
+            rowHeight={rowHeight}
+          />
+        )
       })()}
       </div>
     </div>

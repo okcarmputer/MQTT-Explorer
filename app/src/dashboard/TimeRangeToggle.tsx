@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { SegmentedControl } from './widgets/Controls'
 
 export interface TimeRangeOption {
   label: string
@@ -29,27 +30,16 @@ interface Props {
 }
 
 export default function TimeRangeToggle({ value, onChange, options }: Props) {
+  // Delegates to the shared SegmentedControl rather than carrying its own
+  // inline-styled buttons, so chart time ranges and page filters are one
+  // control with one set of states. `dense` keeps the in-card size it had.
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-      {(options ?? TIME_RANGE_OPTIONS).map(option => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          style={{
-            padding: '1px 6px',
-            fontSize: 11,
-            flex: '0 0 auto',
-            borderRadius: 'var(--cmom-radius-sm, 4px)',
-            border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
-            backgroundColor: option.value === value ? 'var(--cmom-accent, #1976d2)' : 'transparent',
-            color: option.value === value ? '#fff' : 'inherit',
-            cursor: 'pointer',
-          }}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      ariaLabel="Chart time range"
+      dense
+      value={value}
+      onChange={onChange}
+      options={options ?? TIME_RANGE_OPTIONS}
+    />
   )
 }

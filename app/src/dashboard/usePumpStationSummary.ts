@@ -160,3 +160,31 @@ export function liveWetWellLevelFt(summary: PumpStationSummary): number | null {
   return unit.startsWith('in') ? numeric / 12 : numeric
 }
 
+/**
+ * The single authoritative current wet-well level, in feet.
+ *
+ * **Live MQTT wins; SQL is the fallback.** This ordering matters and is the
+ * fix for the stale-gauge bug: `wetWell.currentLevelFt` comes from a one-shot
+ * direct SQL Server read of OPCAudit_Live that is fetched when the component
+ * mounts and never re-read when an MQTT message arrives. The previous
+ * ordering (`wetWell?.currentLevelFt ?? liveLevelFt`) therefore pinned the
+ * gauge to a snapshot for the whole session on every station where SQL
+ * reporting is configured, while the analog-input chart — reading the MQTT
+ * tree node directly — kept moving. Two copies of one quantity, only one of
+ * them live.
+ *
+ * SQL is still the fallback so stations that publish no "Wet Well Level"
+ * analog input (or publish a non-numeric one) keep showing a level instead of
+ * regressing to "N/A".
+ *
+ * Every consumer of the current level must go through this function so the
+ * detail page's gauge, the list-card mini gauge, and the attribute audit
+ * cannot disagree about what "current" means.
+ */
+export function resolveWetWellLevelFt(
+  summary: PumpStationSummary,
+  sqlCurrentLevelFt: number | null | undefined
+): number | null {
+  return liveWetWellLevelFt(summary) ?? sqlCurrentLevelFt ?? null
+}
+

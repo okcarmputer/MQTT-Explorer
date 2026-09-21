@@ -9,7 +9,7 @@ import { useTopicChildren, ChildTopic } from './useTopicChildren'
 import SimpleDeviceGrid from './SimpleDeviceGrid'
 import SimpleDeviceCard from './SimpleDeviceCard'
 import PumpStationDetail from './PumpStationDetail'
-import { usePumpStationSummary, buildSummary, liveWetWellLevelFt } from './usePumpStationSummary'
+import { usePumpStationSummary, buildSummary, resolveWetWellLevelFt } from './usePumpStationSummary'
 import { useSqlWetWellInfo } from './useSqlWetWellInfo'
 import WetWellTankGauge from './widgets/WetWellTankGauge'
 import { useMqttStore } from './store/mqttStore'
@@ -67,8 +67,7 @@ function PumpStationGridCard({ row }: { row: PumpStationRow }) {
 
   const wetWellInfo = useSqlWetWellInfo(row.key)
   const wetWell = wetWellInfo?.wetWell
-  const liveLevelFt = liveWetWellLevelFt(summary)
-  const currentLevelFt = wetWell?.currentLevelFt ?? liveLevelFt
+  const currentLevelFt = resolveWetWellLevelFt(summary, wetWell?.currentLevelFt)
 
   return (
     <SimpleDeviceCard

@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
 import { ALL_TIME_VALUE } from './TimeRangeToggle'
+import DeviceHeader from './DeviceHeader'
 import DiurnalGaugeCard from './widgets/DiurnalGaugeCard'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
 import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
@@ -205,31 +206,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={onBack}
-        style={{
-          marginBottom: 'var(--cmom-space-3, 12px)',
-          padding: '4px 12px',
-          borderRadius: 'var(--cmom-radius-sm, 4px)',
-          border: '1px solid var(--cmom-border-strong, rgba(128,128,128,0.4))',
-          background: 'transparent',
-          color: 'inherit',
-          cursor: 'pointer',
-        }}
-      >
-        &larr; Back
-      </button>
-      <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <span>
-          Site ID: <span style={{ fontFamily: 'var(--cmom-font-mono, monospace)' }}>{deviceKey}</span>
-        </span>
-        {(siteName || siteLocation) && (
-          <span style={{ fontSize: '0.75em', fontWeight: 700, opacity: 0.95, textAlign: 'right' }}>
-            {[siteName, siteLocation].filter(Boolean).join(' — ')}
-          </span>
-        )}
-      </h2>
+      <DeviceHeader titleParts={[siteLocation, siteName]} identifier={deviceKey} onBack={onBack} />
 
       <div ref={fitRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
       {(() => {

@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mqtt-explorer-browser",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "webpack-dev-server",
+        "--config",
+        "webpack.browser.config.mjs",
+        "--mode",
+        "development"
+      ],
+      "cwd": "app",
+      "port": 8080
+    }
+  ]
+}

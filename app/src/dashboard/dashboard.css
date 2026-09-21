@@ -61,8 +61,10 @@
   color: var(--cmom-text-primary);
 }
 
-/* This dashboard is a fixed dark terminal theme, not a light/dark toggle —
-   it always renders dark regardless of OS color-scheme preference. */
+/* Dark is the default palette. A light set of the same token names is defined
+   at the end of this file under :root[data-cmom-theme='light'], driven by the
+   app's Dark Mode setting (see index.tsx). OS color-scheme preference is still
+   not consulted — the in-app setting is the only input. */
 
 .cmom-dashboard h2 {
   font-family: var(--cmom-font-mono);
@@ -741,4 +743,282 @@
   background: var(--cmom-surface-elevated);
   border: 1px solid var(--cmom-border);
   border-radius: var(--cmom-radius-sm);
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Device page header (DeviceHeader.tsx) — EXPLORER-004 / EXPLORER-007.
+ *
+ * Back button sizes to its own content (`align-self: flex-start` on the bar's
+ * flex child) rather than stretching the full page width as the old inline
+ * <button> did. Title/identifier form one left-aligned hierarchy: uppercase
+ * title at the top of the scale, uppercase identifier beneath it in the muted
+ * text color at a smaller size, so "what am I looking at" reads before "which
+ * unit is it".
+ * ------------------------------------------------------------------------- */
+.cmom-device-header {
+  flex: 0 0 auto;
+  margin-bottom: var(--cmom-space-3);
+}
+
+.cmom-device-header__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cmom-space-3);
+  margin-bottom: var(--cmom-space-3);
+}
+
+.cmom-device-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cmom-space-2);
+}
+
+.cmom-back-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cmom-space-1);
+  flex: 0 0 auto;
+  width: auto;
+  padding: 6px 14px;
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cmom-text-primary);
+  background: var(--cmom-surface-elevated);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.cmom-back-button:hover {
+  background: var(--cmom-hover);
+  border-color: var(--cmom-border-strong);
+}
+
+.cmom-back-button:focus-visible {
+  outline: 2px solid var(--cmom-accent);
+  outline-offset: 2px;
+}
+
+.cmom-device-header__title {
+  margin: 0;
+  font-family: var(--cmom-font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cmom-text-primary);
+}
+
+.cmom-device-header__identifier {
+  margin-top: var(--cmom-space-1);
+  font-family: var(--cmom-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cmom-text-muted);
+}
+
+@media (max-width: 720px) {
+  .cmom-device-header__title {
+    font-size: 18px;
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Filter controls (widgets/Controls.tsx) — EXPLORER-005.
+ * Segmented radiogroup + text filter field, replacing inline-styled buttons
+ * and bare native <select>/<input>.
+ * ------------------------------------------------------------------------- */
+.cmom-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--cmom-surface-elevated);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
+}
+
+.cmom-segmented__option {
+  appearance: none;
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--cmom-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--cmom-radius-sm) - 2px);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.cmom-segmented__option:hover:not(.is-selected) {
+  background: var(--cmom-hover);
+  color: var(--cmom-text-primary);
+}
+
+.cmom-segmented__option.is-selected {
+  background: var(--cmom-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cmom-segmented__option:focus-visible {
+  outline: 2px solid var(--cmom-accent);
+  outline-offset: 1px;
+}
+
+.cmom-segmented--dense .cmom-segmented__option {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.cmom-filter-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cmom-filter-field__input {
+  appearance: none;
+  width: 240px;
+  max-width: 100%;
+  padding: 7px 28px 7px 10px;
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+  color: var(--cmom-text-primary);
+  background: var(--cmom-surface-elevated);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
+  transition: border-color 120ms ease;
+}
+
+.cmom-filter-field__input::placeholder {
+  color: var(--cmom-text-tertiary);
+}
+
+.cmom-filter-field__input:hover {
+  border-color: var(--cmom-border-strong);
+}
+
+.cmom-filter-field__input:focus {
+  outline: none;
+  border-color: var(--cmom-accent);
+}
+
+/* The type="search" native clear affordance differs per browser and ignores
+ * our tokens, so it is suppressed in favor of the button below. */
+.cmom-filter-field__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.cmom-filter-field__clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--cmom-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cmom-filter-field__clear:hover {
+  color: var(--cmom-text-primary);
+  background: var(--cmom-hover);
+}
+
+.cmom-filter-field__clear:focus-visible {
+  outline: 2px solid var(--cmom-accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 720px) {
+  .cmom-filter-field__input {
+    width: 100%;
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Light theme — EXPLORER-002.
+ *
+ * The dashboard was authored as a fixed dark terminal palette while the app's
+ * MUI theme toggled light/dark, so the Dark Mode switch only ever repainted
+ * MUI-styled regions and left every .cmom-dashboard surface dark. These
+ * overrides give the same token names light values, selected by the
+ * data-cmom-theme attribute index.tsx mirrors onto <html> from redux state.
+ *
+ * Only the tokens are redefined — no component rule below needs to know the
+ * theme, and nothing changes size or position, so toggling cannot shift layout.
+ * Dark stays the default: absent the attribute (first paint, before the effect
+ * runs) the original dark values apply, which avoids a light flash.
+ * ------------------------------------------------------------------------- */
+:root[data-cmom-theme='light'] .cmom-dashboard {
+  --cmom-bg: #f4f6f8;
+  --cmom-surface: #ffffff;
+  --cmom-surface-elevated: #f0f2f5;
+  --cmom-border: #d8dee4;
+  --cmom-border-strong: #b9c2cc;
+  --cmom-panel-bg: #ffffff;
+  --cmom-card-bg: #ffffff;
+
+  --cmom-card-shadow: 0 1px 2px rgba(27, 31, 36, 0.08), 0 4px 14px rgba(27, 31, 36, 0.06);
+  --cmom-card-shadow-hover: 0 2px 4px rgba(27, 31, 36, 0.12), 0 10px 26px rgba(27, 31, 36, 0.1);
+
+  --cmom-text-primary: #1f2328;
+  --cmom-text-muted: #57606a;
+  --cmom-text-tertiary: #7d8590;
+  --cmom-hover: #eaeef2;
+
+  /* Accent darkened from the dark theme's #2ea043: the lighter green does not
+     hold a 4.5:1 contrast ratio against white for the selected segmented
+     control's white label. */
+  --cmom-accent: #1a7f37;
+  --cmom-status-online: #1a7f37;
+  --cmom-status-offline: #cf222e;
+  --cmom-status-warning: #bc4c00;
+
+  --cmom-severity-ok: #6e7781;
+  --cmom-severity-low: #9a6700;
+  --cmom-severity-moderate: #bc4c00;
+  --cmom-severity-critical: #cf222e;
+}
+
+/* The Explorer panel chrome is defined outside the .cmom-dashboard scope on
+   purpose (see its own comment above) and therefore cannot use the tokens, so
+   it needs its light values stated separately. */
+:root[data-cmom-theme='light'] .cmom-explorer-panel {
+  border: 1px solid #d8dee4;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.08), 0 4px 14px rgba(27, 31, 36, 0.06);
+}
+
+/* The window background behind every pane. Without this the body keeps the
+   browser/Electron default while the panels above it switch, which is the
+   "light-colored gaps" symptom the ticket describes. */
+:root[data-cmom-theme='light'] body {
+  background: #f4f6f8;
+}
+
+:root[data-cmom-theme='dark'] body {
+  background: #0a0e14;
 }

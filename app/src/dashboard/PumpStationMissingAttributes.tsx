@@ -5,7 +5,7 @@ import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { dashboardConfig } from './config'
 import { useTopicChildren } from './useTopicChildren'
-import { usePumpStationSummary, liveWetWellLevelFt } from './usePumpStationSummary'
+import { usePumpStationSummary, resolveWetWellLevelFt } from './usePumpStationSummary'
 import { useSqlWetWellInfo } from './useSqlWetWellInfo'
 import { computeMissingPumpStationAttributes, PUMP_STATION_ATTRIBUTE_NAMES, PumpStationAttributeName } from './pumpStationAttributeAudit'
 
@@ -29,7 +29,7 @@ function PumpStationMissingRow({ serial, node, filters }: { serial: string; node
   const summary = usePumpStationSummary(node)
   const wetWellInfo = useSqlWetWellInfo(serial)
   const wetWell = wetWellInfo?.wetWell
-  const currentLevelFt = wetWell?.currentLevelFt ?? liveWetWellLevelFt(summary)
+  const currentLevelFt = resolveWetWellLevelFt(summary, wetWell?.currentLevelFt)
 
   const missing = computeMissingPumpStationAttributes(node, summary, wetWell, currentLevelFt)
 

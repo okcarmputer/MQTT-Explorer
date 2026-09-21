@@ -73,11 +73,21 @@ function persistLayout(storageKey: string, layout: Layout) {
 // natural height any time it changes.
 function AutoHeightMeasure({ onHeight, children }: { onHeight: (px: number) => void; children: React.ReactNode }) {
   const { ref, height } = useResizeDetector()
+  // The callback is held in a ref and deliberately kept out of the effect's
+  // dependencies. Callers build it inline (`px => handleAutoHeight(id, px)`),
+  // so it has a fresh identity on every render — depending on it re-ran this
+  // effect on each of the page's 2s live-data renders, re-reporting an
+  // unchanged height and restarting the debounce downstream. Only a genuine
+  // height change should reach the parent.
+  const onHeightRef = React.useRef(onHeight)
+  React.useEffect(() => {
+    onHeightRef.current = onHeight
+  })
   React.useEffect(() => {
     if (height !== undefined) {
-      onHeight(height)
+      onHeightRef.current(height)
     }
-  }, [height, onHeight])
+  }, [height])
   return <div ref={ref}>{children}</div>
 }
 

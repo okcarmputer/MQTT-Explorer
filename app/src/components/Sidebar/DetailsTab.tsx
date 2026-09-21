@@ -1,15 +1,14 @@
 import React, { useCallback } from 'react'
-import { Box, Typography, IconButton, Chip, Tooltip, Button } from '@mui/material'
+import { Box, Typography, IconButton, Chip, Tooltip } from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import { withStyles } from '@mui/styles'
 import { connect } from 'react-redux'
 import { bindActionCreators } from 'redux'
 import DeleteIcon from '@mui/icons-material/Delete'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
-import Info from '@mui/icons-material/Info'
 import * as q from '../../../../backend/src/Model'
 import { AppState } from '../../reducers'
-import { sidebarActions, globalActions } from '../../actions'
+import { sidebarActions } from '../../actions'
 import Copy from '../helper/Copy'
 import Save from '../helper/Save'
 import DateFormatter from '../helper/DateFormatter'
@@ -27,7 +26,6 @@ interface Props {
   compareMessage?: q.Message
   connectionId?: string
   sidebarActions: typeof sidebarActions
-  globalActions: typeof globalActions
 }
 
 function DetailsTab(props: Props) {
@@ -72,19 +70,6 @@ function DetailsTab(props: Props) {
         <Typography variant="body2" color="textSecondary" align="center">
           Select a topic to view details
         </Typography>
-
-        {/* About Button - always show even when no topic selected */}
-        <Box className={classes.aboutSection}>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<Info />}
-            onClick={() => props.globalActions.toggleAboutDialogVisibility()}
-            fullWidth
-          >
-            About MQTT Explorer
-          </Button>
-        </Box>
       </Box>
     )
   }
@@ -196,19 +181,6 @@ function DetailsTab(props: Props) {
 
       {/* AI Assistant - Always available when a node is selected */}
       {node && <AIAssistant node={node} connectionId={props.connectionId} />}
-
-      {/* About Section - always visible at bottom */}
-      <Box className={classes.aboutSection}>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<Info />}
-          onClick={() => props.globalActions.toggleAboutDialogVisibility()}
-          fullWidth
-        >
-          About MQTT Explorer
-        </Button>
-      </Box>
     </Box>
   )
 }
@@ -230,16 +202,6 @@ const styles = (theme: Theme) => ({
     minHeight: '200px',
     padding: theme.spacing(3),
     gap: theme.spacing(3),
-  },
-  aboutSection: {
-    marginTop: theme.spacing(3),
-    paddingTop: theme.spacing(2),
-    borderTop: `1px solid ${theme.palette.divider}`,
-  },
-  aboutSection: {
-    marginTop: theme.spacing(3),
-    paddingTop: theme.spacing(2),
-    borderTop: `1px solid ${theme.palette.divider}`,
   },
   // Topic section
   topicSection: {
@@ -359,7 +321,6 @@ const mapStateToProps = (state: AppState) => ({
 
 const mapDispatchToProps = (dispatch: any) => ({
   sidebarActions: bindActionCreators(sidebarActions, dispatch),
-  globalActions: bindActionCreators(globalActions, dispatch),
 })
 
 export default connect(mapStateToProps, mapDispatchToProps)(withStyles(styles)(DetailsTab))

@@ -54,6 +54,11 @@ interface Props {
   // rendering TrendPanel's normally would double them up (nested card
   // border, title shown twice).
   bare?: boolean
+  // AnalogInput's own StateDescription field (e.g. "Normal", "High Level")
+  // — when the topic publishes one, it's a more useful top-right readout
+  // than the "Monthly" baseline-comparison badge, so it replaces that badge
+  // rather than sitting alongside it.
+  stateDescription?: string
 }
 
 function currentValueText(node: q.TreeNode<any>, dotPath?: string): string | undefined {
@@ -95,6 +100,7 @@ export default function TrendPanel({
   defaultTimeRange,
   fillHeight,
   bare,
+  stateDescription,
 }: Props) {
   const [timeRange, setTimeRange] = React.useState(defaultTimeRange ?? DEFAULT_TIME_RANGE)
   const [, setTick] = React.useState(0)
@@ -197,7 +203,17 @@ export default function TrendPanel({
             {unit ? ` (${unit})` : ''}
           </strong>
         )}
-        <SeverityBadge severity={severity} label="Monthly" title={severityBadgeTitle} />
+        {stateDescription ? (
+          <span
+            className="cmom-badge"
+            style={{ minWidth: 84, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={stateDescription}
+          >
+            {stateDescription}
+          </span>
+        ) : (
+          <SeverityBadge severity={severity} label="Monthly" title={severityBadgeTitle} />
+        )}
       </div>
       <TimeRangeToggle value={timeRange} onChange={setTimeRange} options={timeRangeOptions} />
       <div style={fillHeight ? { marginTop: 4, flex: '1 1 auto', minHeight: 0 } : { marginTop: 4 }}>

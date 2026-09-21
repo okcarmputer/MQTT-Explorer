@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Severity, severityOrder } from './config'
+import { FilterField, SegmentedControl } from './widgets/Controls'
 
 export interface SimpleDeviceRow {
   key: string
@@ -52,20 +53,20 @@ export default function SimpleDeviceGrid<T extends SimpleDeviceRow>({ devices, k
   return (
     <div style={{ padding: 'var(--cmom-space-4)', height: '100%', overflow: 'auto', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', gap: 'var(--cmom-space-3)', marginBottom: 'var(--cmom-space-4)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder={`Filter by ${searchLabel ?? keyLabel}`}
+        <FilterField
           value={textFilter}
-          onChange={e => setTextFilter(e.target.value)}
-          style={{ padding: 6, width: 220, borderRadius: 'var(--cmom-radius-sm)', border: '1px solid var(--cmom-border-strong)' }}
+          onChange={setTextFilter}
+          placeholder={`Filter by ${searchLabel ?? keyLabel}`}
         />
-        <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as Severity | 'All')}>
-          <option value="All">All severities</option>
-          {severityOrder.map(s => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <SegmentedControl<Severity | 'All'>
+          ariaLabel="Filter by severity"
+          value={severityFilter}
+          onChange={setSeverityFilter}
+          options={[
+            { label: 'All', value: 'All' as const },
+            ...severityOrder.map(s => ({ label: s, value: s })),
+          ]}
+        />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--cmom-space-3)', alignItems: 'center' }}>
           {headerActions}
           <span className="cmom-label">

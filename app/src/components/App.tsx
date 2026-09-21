@@ -10,7 +10,6 @@ import ConnectionSetup from './ConnectionSetup/ConnectionSetup'
 import ErrorBoundary from './ErrorBoundary'
 import Notification from './Layout/Notification'
 import UpdateNotifier from './UpdateNotifier'
-import { AboutDialog } from './AboutDialog'
 import { AppState } from '../reducers'
 import { ConfirmationRequest } from '../reducers/Global'
 import { globalActions, settingsActions } from '../actions'
@@ -28,7 +27,6 @@ interface Props {
   settingsActions: typeof settingsActions
   launching: boolean
   confirmationRequests: Array<ConfirmationRequest>
-  aboutDialogVisible: boolean
 }
 
 // The old TitleBar banner (hamburger → Settings drawer, search, title,
@@ -80,10 +78,6 @@ class App extends React.PureComponent<Props, {}> {
         <HashRouter>
         <ErrorBoundary>
           <ConfirmationDialog confirmationRequests={this.props.confirmationRequests} />
-          <AboutDialog
-            open={this.props.aboutDialogVisible}
-            onClose={() => this.props.actions.toggleAboutDialogVisibility()}
-          />
           {this.renderNotification()}
           <div className={centerContent}>
             <div className={content}>
@@ -153,7 +147,6 @@ const mapStateToProps = (state: AppState) => ({
   highlightTopicUpdates: state.settings.get('highlightTopicUpdates'),
   launching: state.globalState.get('launching'),
   confirmationRequests: state.globalState.get('confirmationRequests'),
-  aboutDialogVisible: state.globalState.get('aboutDialogVisible'),
 })
 
 export default withStyles(styles)(connect(mapStateToProps, mapDispatchToProps)(App))
