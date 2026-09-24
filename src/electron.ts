@@ -28,8 +28,9 @@ import {
   getFlowMonitorBaseline,
   getFlowMonitorHistory,
   getFlowMonitorPortInfo,
-  getPumpStationWetWellInfo,
+  getPumpStationWetWellInfoBatch,
   getManholeInfo,
+  getFlowMonitorDiurnalAnomalies,
 } from './sqlReporting'
 
 // SQL_SERVER/SQL_DATABASE/SQL_USER/etc (see src/sqlReporting.ts) have to be
@@ -138,12 +139,12 @@ app.whenReady().then(() => {
     }
   })
 
-  backendRpc.on(RpcEvents.getPumpStationWetWellInfo, async ({ serial }) => {
+  backendRpc.on(RpcEvents.getPumpStationWetWellInfoBatch, async ({ serials }) => {
     try {
-      return await getPumpStationWetWellInfo(serial)
+      return { results: await getPumpStationWetWellInfoBatch(serials) }
     } catch (error) {
-      console.error('[SQL] getPumpStationWetWellInfo failed:', error instanceof Error ? error.message : error)
-      return { configured: true, serial, wetWell: null }
+      console.error('[SQL] getPumpStationWetWellInfoBatch failed:', error instanceof Error ? error.message : error)
+      return { results: {} }
     }
   })
 
@@ -153,6 +154,15 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('[SQL] getManholeInfo failed:', error instanceof Error ? error.message : error)
       return { configured: true, records: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorDiurnalAnomalies, async ({ siteNumber, hours }) => {
+    try {
+      return await getFlowMonitorDiurnalAnomalies(siteNumber, hours)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorDiurnalAnomalies failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, rows: [] }
     }
   })
 

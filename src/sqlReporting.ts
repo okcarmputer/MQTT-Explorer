@@ -7,10 +7,13 @@ import {
   FlowMonitorPortInfoResponse,
   FlowMonitorPortDimension,
   PumpStationWetWellInfoResponse,
+  PumpStationWetWellDimension,
   ManholeInfoResponse,
   ManholeRecord,
+  FlowMonitorDiurnalAnomaliesResponse,
+  FlowMonitorDiurnalAnomalyRow,
 } from '../events/EventsV2'
-import { getWetWellDimensions } from './wetWellDimensions'
+import { getWetWellDimensions, staticWetWellRecord, OpcStationFields } from '../events/wetWellDimensions'
 
 /**
  * Direct SQL Server reads for report-style data (baselines, historical
@@ -40,6 +43,17 @@ export function isSqlReportingConfigured(): boolean {
 // whatever actually differs from the main connection.
 export function isOpcReportingConfigured(): boolean {
   return Boolean(process.env.SQL_OPC_SERVER)
+}
+
+// diurnal_detector.py's Flow_Monitor_Diurnal_Anomalies table lives on dev
+// (DEV-SQL-00-IG.rwr.re-wa.org as of Anomaly_Detection/DEV_SETUP.md) while
+// the main pool above points at prod — a third independent pool, same
+// "default every setting off the main connection, override only what
+// differs" shape as the OPC pool. Move REWA_DB_DSN_TARGET's server here into
+// SQL_DIURNAL_SERVER once this table moves to prod (see DEV_SETUP.md's
+// "Moving to production later").
+export function isDiurnalReportingConfigured(): boolean {
+  return Boolean(process.env.SQL_DIURNAL_SERVER)
 }
 
 // Two independent connection pools (main/prod + OPC/dev), same lazy
@@ -100,6 +114,23 @@ const getOpcPool = makePoolFactory(() => ({
   options: {
     encrypt: (process.env.SQL_OPC_ENCRYPT ?? process.env.SQL_ENCRYPT) !== 'false',
     trustServerCertificate: (process.env.SQL_OPC_TRUST_SERVER_CERT ?? process.env.SQL_TRUST_SERVER_CERT) === 'true',
+  },
+  pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
+}))
+
+const getDiurnalPool = makePoolFactory(() => ({
+  server: process.env.SQL_DIURNAL_SERVER as string,
+  database: process.env.SQL_DIURNAL_DATABASE || process.env.SQL_DATABASE || 'flow_monitor',
+  user: process.env.SQL_DIURNAL_USER || process.env.SQL_USER,
+  password: process.env.SQL_DIURNAL_PASSWORD || process.env.SQL_PASSWORD,
+  port: process.env.SQL_DIURNAL_PORT
+    ? parseInt(process.env.SQL_DIURNAL_PORT, 10)
+    : process.env.SQL_PORT
+      ? parseInt(process.env.SQL_PORT, 10)
+      : 1433,
+  options: {
+    encrypt: (process.env.SQL_DIURNAL_ENCRYPT ?? process.env.SQL_ENCRYPT) !== 'false',
+    trustServerCertificate: (process.env.SQL_DIURNAL_TRUST_SERVER_CERT ?? process.env.SQL_TRUST_SERVER_CERT) === 'true',
   },
   pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
 }))
@@ -261,24 +292,27 @@ export async function getFlowMonitorPortInfo(siteNumber: string): Promise<FlowMo
 //
 // GIS's own dimension data (Comments freeform text, WetWellVolume) is known
 // to be inconsistent/unorganized, so the hardcoded per-serial table
-// (src/wetWellDimensions.ts, see getPumpStationWetWellInfo below) stays the
+// (events/wetWellDimensions.ts, see getPumpStationWetWellInfoBatch below) stays the
 // priority source for shape/diameter/depth/length/width — this query is
 // only asked for the fields that table doesn't cover (facility name, basin,
 // volume, elevation, material, pump count, design capacity, live level).
 // Runs against the OPC/dev pool (see isOpcReportingConfigured above) —
 // OPCAudit_Live lives on a separate SQL Server instance from SPUMPSTA/prod,
 // so this can't be one query/one round trip the way it used to be. Resolves
-// @serial to both a FacilityID (fed into PUMP_STATION_QUERY below, run
-// against the main pool) and the live level reading in a single pass. Not
-// ranked/tiebroken against sibling OPC serials sharing the same FacilityID
-// (the original multi-station version of this query does that ranking to
-// pick one "best" row per facility for a station list — here we already
-// know exactly which serial we want, so filtering by SerialNumber up front
-// avoids a losing tiebreak silently excluding a valid, real serial from its
-// own detail page). No database prefix on OPCAudit_Live — the OPC pool
-// already connects directly to whichever database holds it (SQL_OPC_DATABASE).
-const OPC_STATION_QUERY = `
-WITH ThisOpcStation AS (
+// every requested serial (bound as @s0, @s1, ... — see bindInList) to both a
+// FacilityID (fed into pumpStationsQuery below, run against the main pool)
+// and its latest live level reading, in a single pass for the whole batch.
+// Not ranked/tiebroken against sibling OPC serials sharing the same
+// FacilityID (the original multi-station version of this query does that
+// ranking to pick one "best" row per facility for a station list — here we
+// already know exactly which serials we want, so filtering by SerialNumber
+// up front avoids a losing tiebreak silently excluding a valid, real serial
+// from its own detail page). No database prefix on OPCAudit_Live — the OPC
+// pool already connects directly to whichever database holds it
+// (SQL_OPC_DATABASE).
+function opcStationsQuery(serialParams: string): string {
+  return `
+WITH OpcStations AS (
     SELECT
         SerialNumber,
         MAX(Description) AS StationName,
@@ -288,45 +322,50 @@ WITH ThisOpcStation AS (
         ) AS ParsedFacilityID
     FROM [dbo].[OPCAudit_Live]
     WHERE FieldName IN ('UnacknowledgedAlarms', 'Timezone')
-      AND SerialNumber = @serial
+      AND SerialNumber IN (${serialParams})
     GROUP BY SerialNumber
 ),
 LevelReadings AS (
     SELECT
         SerialNumber,
         TRY_CAST(Value AS FLOAT) AS CurrentLevelFt,
-        LastSeenAt AS LevelLastSeenAt
+        LastSeenAt AS LevelLastSeenAt,
+        ROW_NUMBER() OVER (PARTITION BY SerialNumber ORDER BY LastSeenAt DESC) AS rn
     FROM [dbo].[OPCAudit_Live]
     WHERE FieldName = 'ScaledValue'
       AND PointName = 'AnalogInput1'
       AND Description LIKE '%Wet Well Level%'
-      AND SerialNumber = @serial
+      AND SerialNumber IN (${serialParams})
 )
-SELECT TOP 1
+SELECT
     ol.SerialNumber AS OPC_SerialNumber,
     ol.StationName AS OPC_StationName,
     ol.ParsedFacilityID,
     lr.CurrentLevelFt,
     lr.LevelLastSeenAt
-FROM ThisOpcStation ol
+FROM OpcStations ol
 LEFT JOIN LevelReadings lr
-    ON lr.SerialNumber = ol.SerialNumber;
+    ON lr.SerialNumber = ol.SerialNumber
+   AND lr.rn = 1;
 `
+}
 
-// Runs against the main/prod pool once OPC_STATION_QUERY above has resolved
-// @facilityId. SPUMPSTA — confirmed live/current, not the SPUMPSTA_H
-// archive; a login that could already read
+// Runs against the main/prod pool once opcStationsQuery above has resolved
+// FacilityIDs (bound as @f0, @f1, ...). SPUMPSTA — confirmed live/current,
+// not the SPUMPSTA_H archive; a login that could already read
 // sde.gisadmin.SMANHOLE/REWAFLOWMETER just fine ruled out the
 // permission-guess that made an earlier version of this query revert to
 // SPUMPSTA_H. GIS's own dimension data (Comments freeform text,
 // WetWellVolume) is known to be inconsistent/unorganized, so the hardcoded
-// per-serial table (src/wetWellDimensions.ts, see getPumpStationWetWellInfo
-// below) stays the priority source for shape/diameter/depth/length/width —
-// this query is only asked for the fields that table doesn't cover
-// (facility name, basin, volume, elevation, material, pump count, design
-// capacity).
-const PUMP_STATION_QUERY = `
-SELECT TOP 1
+// per-serial table (events/wetWellDimensions.ts, see
+// getPumpStationWetWellInfoBatch below) stays the priority source for
+// shape/diameter/depth/length/width — this query is only asked for the
+// fields that table doesn't cover (facility name, basin, volume, elevation,
+// material, pump count, design capacity).
+function pumpStationsQuery(facilityParams: string): string {
+  return `
+SELECT
+    TRY_CAST(p.FacilityID AS INT) AS FacilityIdInt,
     p.FacilityID,
     p.FacilityName,
     p.Type AS StationType,
@@ -340,9 +379,39 @@ SELECT TOP 1
     p.DesignCapacity AS StationDesignCapacity,
     p.Comments AS StationComments
 FROM [sde].[gisadmin].[SPUMPSTA] p
-WHERE TRY_CAST(p.FacilityID AS INT) = @facilityId
+WHERE TRY_CAST(p.FacilityID AS INT) IN (${facilityParams})
   AND p.Enabled = 1;
 `
+}
+
+// SQL Server caps a request at 2100 parameters; batches are split well
+// under that.
+const IN_LIST_CHUNK_SIZE = 500
+
+function chunk<T>(values: T[], size: number = IN_LIST_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size))
+  }
+  return chunks
+}
+
+// Binds each value as its own parameter (@prefix0, @prefix1, ...) and
+// returns the placeholder list for an IN (...) clause, so values never
+// reach the SQL text itself.
+function bindInList(
+  request: sql.Request,
+  prefix: string,
+  type: sql.ISqlType | (() => sql.ISqlType),
+  values: Array<string | number>
+): string {
+  return values
+    .map((value, i) => {
+      request.input(`${prefix}${i}`, type, value)
+      return `@${prefix}${i}`
+    })
+    .join(', ')
+}
 
 // Pulls "4' dia X 19' deep", "10' DIA X 12' DEEP WET WELL", "8' dia x 16'
 // deep", etc. out of freeform Comments text. Case-insensitive, tolerant of
@@ -359,124 +428,37 @@ function parseDiameterAndDepthFt(comments: string | null): { diameterFt: number 
   return { diameterFt, depthFt }
 }
 
-export async function getPumpStationWetWellInfo(serial: string): Promise<PumpStationWetWellInfoResponse> {
-  // The static shape/dimension table (src/wetWellDimensions.ts) is local
-  // data, not SQL-backed — it's available (and authoritative over the
-  // freeform-Comments regex parse) regardless of whether SQL reporting is
-  // configured for this process.
+// GIS attributes change rarely and the dashboard only refreshes them daily
+// (SQL_GIS_POLL_INTERVAL_MS), so a complete answer is reused for this long
+// instead of re-querying both servers every time a page opens. Answers
+// where either SQL step failed are never cached, so they're retried on the
+// next request rather than stuck degraded for the whole TTL.
+const WET_WELL_CACHE_TTL_MS = 15 * 60 * 1000
+const wetWellCache = new Map<string, { expiresAt: number; value: PumpStationWetWellInfoResponse }>()
+
+// Same normalization as events/wetWellDimensions.ts's table lookup, so the
+// serial as requested (MQTT topic segment) matches OPCAudit_Live's
+// SerialNumber despite casing/whitespace differences.
+function serialKey(serial: string): string {
+  return serial.trim().toUpperCase()
+}
+
+function opcFields(opcRow: any): OpcStationFields | null {
+  if (!opcRow) {
+    return null
+  }
+  return {
+    currentLevelFt: opcRow.CurrentLevelFt ?? null,
+    levelLastSeenAt: opcRow.LevelLastSeenAt ? new Date(opcRow.LevelLastSeenAt).toISOString() : null,
+    opcSerialNumber: opcRow.OPC_SerialNumber ?? null,
+    opcStationName: opcRow.OPC_StationName ?? null,
+  }
+}
+
+// Full record: static table's dimensions (when it has an entry) merged with
+// the SPUMPSTA row's GIS fields and the OPC row's live level/identity.
+function mergedWetWell(serial: string, opcRow: any, row: any): PumpStationWetWellDimension {
   const staticDims = getWetWellDimensions(serial)
-
-  if (!isSqlReportingConfigured()) {
-    return {
-      configured: false,
-      serial,
-      wetWell: staticDims
-        ? {
-            shape: staticDims.shape,
-            dimensionName: null,
-            dimensionValue: null,
-            dimensionUnits: null,
-            volumeGallons: null,
-            elevationAtBottom: null,
-            material: null,
-            comments: null,
-            diameterFt: staticDims.diameterFt,
-            depthFt: staticDims.depthFt,
-            lengthFt: staticDims.lengthFt,
-            widthFt: staticDims.widthFt,
-            dimensionsSource: 'spreadsheet',
-            sqlParsedDiameterFt: null,
-            sqlParsedDepthFt: null,
-            capacityGallons: staticDims.capacityGallons ?? null,
-            currentLevelFt: null,
-            levelLastSeenAt: null,
-            facilityId: null,
-            facilityName: null,
-            stationType: null,
-            basin: null,
-            subBasin: null,
-            dryWellMaterial: null,
-            stationPumpCount: null,
-            stationDesignCapacity: null,
-            opcSerialNumber: null,
-            opcStationName: null,
-          }
-        : null,
-    }
-  }
-
-  // Step 1: resolve @serial -> FacilityID + live level, from the OPC/dev
-  // pool. Without this configured at all, there's no way to know which
-  // SPUMPSTA row belongs to this serial (see OPC_STATION_QUERY's own
-  // comment) — degrade to the static-dims-only shape, same as the
-  // !isSqlReportingConfigured() branch above, rather than guessing.
-  let opcRow: any
-  if (isOpcReportingConfigured()) {
-    try {
-      const opcPool = await getOpcPool()
-      const opcResult = await opcPool.request().input('serial', sql.VarChar(50), serial).query(OPC_STATION_QUERY)
-      opcRow = opcResult.recordset[0]
-    } catch (error) {
-      console.error('[SQL] OPC_STATION_QUERY failed:', error instanceof Error ? error.message : error)
-    }
-  }
-
-  if (!opcRow || opcRow.ParsedFacilityID === null || opcRow.ParsedFacilityID === undefined) {
-    return {
-      configured: true,
-      serial,
-      wetWell: staticDims
-        ? {
-            shape: staticDims.shape,
-            dimensionName: null,
-            dimensionValue: null,
-            dimensionUnits: null,
-            volumeGallons: null,
-            elevationAtBottom: null,
-            material: null,
-            comments: null,
-            diameterFt: staticDims.diameterFt,
-            depthFt: staticDims.depthFt,
-            lengthFt: staticDims.lengthFt,
-            widthFt: staticDims.widthFt,
-            dimensionsSource: 'spreadsheet',
-            sqlParsedDiameterFt: null,
-            sqlParsedDepthFt: null,
-            capacityGallons: staticDims.capacityGallons ?? null,
-            currentLevelFt: opcRow?.CurrentLevelFt ?? null,
-            levelLastSeenAt: opcRow?.LevelLastSeenAt ? new Date(opcRow.LevelLastSeenAt).toISOString() : null,
-            facilityId: null,
-            facilityName: null,
-            stationType: null,
-            basin: null,
-            subBasin: null,
-            dryWellMaterial: null,
-            stationPumpCount: null,
-            stationDesignCapacity: null,
-            opcSerialNumber: opcRow?.OPC_SerialNumber ?? null,
-            opcStationName: opcRow?.OPC_StationName ?? null,
-          }
-        : null,
-    }
-  }
-
-  // Step 2: FacilityID resolved — look up its GIS attributes from the
-  // main/prod pool.
-  const connectedPool = await getPool()
-  const result = await connectedPool
-    .request()
-    .input('facilityId', sql.Int, opcRow.ParsedFacilityID)
-    .query(PUMP_STATION_QUERY)
-
-  const row = result.recordset[0]
-  if (!row) {
-    return {
-      configured: true,
-      serial,
-      wetWell: null,
-    }
-  }
-
   const parsed = parseDiameterAndDepthFt(row.StationComments)
   const shape = staticDims?.shape ?? null
   const diameterFt = staticDims?.diameterFt ?? parsed.diameterFt
@@ -490,41 +472,140 @@ export async function getPumpStationWetWellInfo(serial: string): Promise<PumpSta
     : parsed.diameterFt !== null || parsed.depthFt !== null
       ? 'sql-comments'
       : null
+  const opc = opcFields(opcRow)
 
   return {
-    configured: true,
-    serial,
-    wetWell: {
-      shape,
-      dimensionName: null,
-      dimensionValue: null,
-      dimensionUnits: null,
-      volumeGallons: row.WetWellVolume,
-      elevationAtBottom: row.ElevationAtBottom,
-      material: row.WetWellMaterial,
-      comments: row.StationComments,
-      diameterFt,
-      depthFt,
-      lengthFt: staticDims?.lengthFt ?? null,
-      widthFt: staticDims?.widthFt ?? null,
-      dimensionsSource,
-      sqlParsedDiameterFt: parsed.diameterFt,
-      sqlParsedDepthFt: parsed.depthFt,
-      capacityGallons: staticDims?.capacityGallons ?? null,
-      currentLevelFt: opcRow.CurrentLevelFt,
-      levelLastSeenAt: opcRow.LevelLastSeenAt ? new Date(opcRow.LevelLastSeenAt).toISOString() : null,
-      facilityId: row.FacilityID !== undefined && row.FacilityID !== null ? String(row.FacilityID) : null,
-      facilityName: row.FacilityName,
-      stationType: row.StationType,
-      basin: row.Basin,
-      subBasin: row.SubBasin,
-      dryWellMaterial: row.DryWellMaterial,
-      stationPumpCount: row.StationPumpCount,
-      stationDesignCapacity: row.StationDesignCapacity,
-      opcSerialNumber: opcRow.OPC_SerialNumber,
-      opcStationName: opcRow.OPC_StationName,
-    },
+    shape,
+    dimensionName: null,
+    dimensionValue: null,
+    dimensionUnits: null,
+    volumeGallons: row.WetWellVolume,
+    elevationAtBottom: row.ElevationAtBottom,
+    material: row.WetWellMaterial,
+    comments: row.StationComments,
+    diameterFt,
+    depthFt,
+    lengthFt: staticDims?.lengthFt ?? null,
+    widthFt: staticDims?.widthFt ?? null,
+    dimensionsSource,
+    sqlParsedDiameterFt: parsed.diameterFt,
+    sqlParsedDepthFt: parsed.depthFt,
+    capacityGallons: staticDims?.capacityGallons ?? null,
+    currentLevelFt: opc?.currentLevelFt ?? null,
+    levelLastSeenAt: opc?.levelLastSeenAt ?? null,
+    facilityId: row.FacilityID !== undefined && row.FacilityID !== null ? String(row.FacilityID) : null,
+    facilityName: row.FacilityName,
+    stationType: row.StationType,
+    basin: row.Basin,
+    subBasin: row.SubBasin,
+    dryWellMaterial: row.DryWellMaterial,
+    stationPumpCount: row.StationPumpCount,
+    stationDesignCapacity: row.StationDesignCapacity,
+    opcSerialNumber: opc?.opcSerialNumber ?? null,
+    opcStationName: opc?.opcStationName ?? null,
   }
+}
+
+// Every serial a page needs, answered with one OPC query and one SPUMPSTA
+// query total (the station list used to cost two queries per station, all
+// queued behind a 5-connection pool). Never throws for SQL trouble: any
+// serial whose SQL lookup fails still gets its static-table dimensions
+// (events/wetWellDimensions.ts), so a SQL outage only hides GIS fields.
+export async function getPumpStationWetWellInfoBatch(serials: string[]): Promise<Record<string, PumpStationWetWellInfoResponse>> {
+  const results: Record<string, PumpStationWetWellInfoResponse> = {}
+  const requested = Array.from(new Set(serials.filter(serial => typeof serial === 'string' && serial.trim() !== '')))
+
+  if (!isSqlReportingConfigured()) {
+    for (const serial of requested) {
+      results[serial] = { configured: false, serial, wetWell: staticWetWellRecord(serial) }
+    }
+    return results
+  }
+
+  const now = Date.now()
+  const toFetch: string[] = []
+  for (const serial of requested) {
+    const cached = wetWellCache.get(serialKey(serial))
+    if (cached && cached.expiresAt > now) {
+      results[serial] = { ...cached.value, serial }
+    } else {
+      toFetch.push(serial)
+    }
+  }
+  if (toFetch.length === 0) {
+    return results
+  }
+
+  // Step 1: resolve serials -> FacilityID + live level, from the OPC/dev
+  // pool. Without it there's no way to know which SPUMPSTA row belongs to a
+  // serial (see opcStationsQuery's own comment) — those serials degrade to
+  // the static-dims-only record rather than guessing.
+  const opcBySerial = new Map<string, any>()
+  let opcSucceeded = false
+  if (isOpcReportingConfigured()) {
+    try {
+      const opcPool = await getOpcPool()
+      for (const serialChunk of chunk(toFetch)) {
+        const request = opcPool.request()
+        const params = bindInList(request, 's', sql.VarChar(50), serialChunk)
+        const result = await request.query(opcStationsQuery(params))
+        for (const row of result.recordset) {
+          opcBySerial.set(serialKey(String(row.OPC_SerialNumber)), row)
+        }
+      }
+      opcSucceeded = true
+    } catch (error) {
+      console.error('[SQL] OPC stations query failed:', error instanceof Error ? error.message : error)
+    }
+  }
+
+  // Step 2: FacilityIDs resolved — look up their GIS attributes from the
+  // main/prod pool. A failure here (prod unreachable) falls back to the
+  // static-dims-only record for every serial in the batch.
+  const facilityIds = Array.from(
+    new Set(
+      Array.from(opcBySerial.values())
+        .map(row => row.ParsedFacilityID)
+        .filter((id): id is number => typeof id === 'number')
+    )
+  )
+  const stationByFacility = new Map<number, any>()
+  let prodSucceeded = true
+  if (facilityIds.length > 0) {
+    try {
+      const connectedPool = await getPool()
+      for (const facilityChunk of chunk(facilityIds)) {
+        const request = connectedPool.request()
+        const params = bindInList(request, 'f', sql.Int, facilityChunk)
+        const result = await request.query(pumpStationsQuery(params))
+        for (const row of result.recordset) {
+          // First enabled row per facility, same as the old per-station TOP 1.
+          if (!stationByFacility.has(row.FacilityIdInt)) {
+            stationByFacility.set(row.FacilityIdInt, row)
+          }
+        }
+      }
+    } catch (error) {
+      prodSucceeded = false
+      console.error('[SQL] Pump stations query failed:', error instanceof Error ? error.message : error)
+    }
+  }
+
+  for (const serial of toFetch) {
+    const opcRow = opcBySerial.get(serialKey(serial))
+    const stationRow = typeof opcRow?.ParsedFacilityID === 'number' ? stationByFacility.get(opcRow.ParsedFacilityID) : undefined
+    const value: PumpStationWetWellInfoResponse = {
+      configured: true,
+      serial,
+      wetWell: stationRow ? mergedWetWell(serial, opcRow, stationRow) : staticWetWellRecord(serial, opcFields(opcRow)),
+    }
+    results[serial] = value
+    if (opcSucceeded && prodSucceeded) {
+      wetWellCache.set(serialKey(serial), { expiresAt: now + WET_WELL_CACHE_TTL_MS, value })
+    }
+  }
+
+  return results
 }
 
 // One row per flow meter (REWAFLOWMETER), left-joined to its manhole
@@ -605,4 +686,49 @@ export async function getManholeInfo(): Promise<ManholeInfoResponse> {
   }))
 
   return { configured: true, records }
+}
+
+// diurnal_detector.py's own anomaly table — one row per flagged (site,
+// channel, AnomalyType) comparison, unlike comparison_results/
+// Flow_Monitor_Anomalies above (the monthly/CHA detector, a different
+// engine, different table, different server pool). ABS(AnomalyValue) is
+// severity; AnomalyValue's sign is direction, not worseness — ORDER BY
+// ABS(...) DESC, not AnomalyValue DESC (see the source doc's own caveat).
+const DIURNAL_ANOMALIES_QUERY = `
+SELECT
+    AnomalyID, SiteNumber, SiteLocation, MeasurementType, AnomalyType, AnomalyValue,
+    MeasurementValue, AvgDiurnal, NormDiurnal, MeasurementTime, DetectedAt
+FROM dbo.Flow_Monitor_Diurnal_Anomalies
+WHERE SiteNumber = @siteNumber
+  AND MeasurementTime >= DATEADD(HOUR, -@hours, SYSUTCDATETIME())
+ORDER BY ABS(AnomalyValue) DESC, MeasurementTime DESC;
+`
+
+export async function getFlowMonitorDiurnalAnomalies(siteNumber: string, hours: number): Promise<FlowMonitorDiurnalAnomaliesResponse> {
+  if (!isDiurnalReportingConfigured()) {
+    return { configured: false, siteNumber, rows: [] }
+  }
+
+  const connectedPool = await getDiurnalPool()
+  const result = await connectedPool
+    .request()
+    .input('siteNumber', sql.VarChar(50), siteNumber)
+    .input('hours', sql.Int, hours)
+    .query(DIURNAL_ANOMALIES_QUERY)
+
+  const rows: FlowMonitorDiurnalAnomalyRow[] = result.recordset.map((row: any) => ({
+    anomalyId: row.AnomalyID,
+    siteNumber: String(row.SiteNumber),
+    siteLocation: row.SiteLocation ?? null,
+    measurementType: row.MeasurementType,
+    anomalyType: row.AnomalyType,
+    anomalyValue: row.AnomalyValue,
+    measurementValue: row.MeasurementValue,
+    avgDiurnal: row.AvgDiurnal,
+    normDiurnal: row.NormDiurnal,
+    measurementTime: new Date(row.MeasurementTime).toISOString(),
+    detectedAt: new Date(row.DetectedAt).toISOString(),
+  }))
+
+  return { configured: true, siteNumber, rows }
 }

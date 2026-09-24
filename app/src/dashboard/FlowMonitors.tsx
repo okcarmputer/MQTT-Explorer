@@ -10,6 +10,7 @@ import SimpleDeviceCard from './SimpleDeviceCard'
 import FlowMonitorDetail from './FlowMonitorDetail'
 import DataChannelTypes from './DataChannelTypes'
 import FlowMonitorMissingAttributes from './FlowMonitorMissingAttributes'
+import HachLiveCharts from './HachLiveCharts'
 import { useFlowSiteInfo } from './useFlowSiteInfo'
 import { useFlowPortInfo, extractDiameter, FlowPortInfo } from './useFlowPortInfo'
 import PipeGauge from './widgets/PipeGauge'
@@ -42,6 +43,21 @@ function FlowMonitorDetailRoute({ devices, tree }: { devices: ChildTopic[]; tree
       tree={tree}
       onBack={() => navigate('/flow-monitors')}
     />
+  )
+}
+
+// No site selected: the Hach live-charts server's own full page, including
+// its "Hach Flow Monitors Sites Reporting" list. Per-site embeds live in
+// FlowMonitorDetail's "Live Charts" view instead.
+function LiveChartsAllSites() {
+  const navigate = useNavigate()
+  return (
+    <div style={{ padding: 'var(--cmom-space-4, 16px)' }}>
+      <button type="button" className="cmom-back-button" onClick={() => navigate('/flow-monitors')}>
+        <span aria-hidden="true">&larr;</span> Back
+      </button>
+      <HachLiveCharts />
+    </div>
   )
 }
 
@@ -119,6 +135,21 @@ function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; s
           }}
         >
           Data Channel Types
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/flow-monitors/live-charts')}
+          style={{
+            marginLeft: 'var(--cmom-space-2)',
+            padding: '4px 12px',
+            borderRadius: 'var(--cmom-radius-sm)',
+            border: '1px solid var(--cmom-border-strong)',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          Live Charts
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
@@ -222,6 +253,7 @@ function FlowMonitors({ tree }: Props) {
       <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} ports={ports} />} />
       <Route path="/flow-monitors/data-channel-types" element={<DataChannelTypes />} />
       <Route path="/flow-monitors/missing-attributes" element={<FlowMonitorMissingAttributes />} />
+      <Route path="/flow-monitors/live-charts" element={<LiveChartsAllSites />} />
       <Route path="/flow-monitors/:siteId" element={<FlowMonitorDetailRoute devices={devices} tree={tree} />} />
     </Routes>
   )

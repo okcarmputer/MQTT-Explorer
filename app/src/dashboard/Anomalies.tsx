@@ -5,7 +5,6 @@ import { AppState } from '../reducers'
 import * as q from '../../../backend/src/Model'
 import { Severity, severityColors, severityOrder } from './config'
 import { DeviceType, DEVICE_TYPE_ROUTE_PREFIX, useAnomalyFeed } from './useAnomalyFeed'
-import DashboardGrid, { GridPanelDef } from './DashboardGrid'
 
 interface Props {
   tree?: q.Tree<any>
@@ -67,8 +66,19 @@ function DiurnalAnomalyValues({ e }: { e: ReturnType<typeof useAnomalyFeed>['eve
   }
   return (
     <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>
-      {e.normalAnomalyLevel !== undefined && <div>Normal Anomaly Val: {e.normalAnomalyLevel}</div>}
-      {e.avgAnomalyLevel !== undefined && <div>Average Anomaly Value: {e.avgAnomalyLevel}</div>}
+      {e.measurementValue !== undefined && <div>Measured: {e.measurementValue}</div>}
+      {e.normalAnomalyLevel !== undefined && (
+        <div>
+          Normal Anomaly Val: {e.normalAnomalyLevel}
+          {e.normDiurnal !== undefined && ` (norm. diurnal ${e.normDiurnal})`}
+        </div>
+      )}
+      {e.avgAnomalyLevel !== undefined && (
+        <div>
+          Average Anomaly Value: {e.avgAnomalyLevel}
+          {e.avgDiurnal !== undefined && ` (avg diurnal ${e.avgDiurnal})`}
+        </div>
+      )}
     </div>
   )
 }
@@ -122,17 +132,25 @@ function AnomalyCard({ e }: { e: ReturnType<typeof useAnomalyFeed>['events'][num
 }
 
 function FeedPanel({ filtered }: { filtered: ReturnType<typeof useAnomalyFeed>['events'] }) {
-  return filtered.length === 0 ? (
-    <div style={{ opacity: 0.7 }}>No anomaly transitions observed yet this session.</div>
-  ) : (
-    // Wider min column than the default .cmom-card-grid (140px) — these
-    // cards carry a device id, anomaly type, severity transition, and
-    // sometimes two extra value lines, which read as cramped/cut-off at the
-    // default width.
-    <div className="cmom-card-grid" style={{ ['--cmom-grid-min' as any]: '300px' }}>
-      {filtered.map(e => (
-        <AnomalyCard key={e.id} e={e} />
-      ))}
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 var(--cmom-space-2)' }}>Anomaly Transitions ({filtered.length})</h3>
+      {filtered.length === 0 ? (
+        <div style={{ opacity: 0.7, fontSize: 12 }}>No anomaly transitions observed yet this session.</div>
+      ) : (
+        // Wider min column than the default .cmom-card-grid (140px) — these
+        // cards carry a device id, anomaly type, severity transition, and
+        // sometimes two extra value lines, which read as cramped/cut-off at
+        // the default width. Rendered directly on the page (the page itself
+        // scrolls) rather than inside a fixed-height panel that scrolls
+        // internally — every card is reachable by scrolling the page, same
+        // as Overview's Current Anomalies grid.
+        <div className="cmom-card-grid" style={{ ['--cmom-grid-min' as any]: '300px' }}>
+          {filtered.map(e => (
+            <AnomalyCard key={e.id} e={e} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -173,32 +191,23 @@ function Anomalies({ tree }: Props) {
     e => (deviceTypeFilter === 'All' || e.deviceType === deviceTypeFilter) && (severityFilter === 'All' || e.severity === severityFilter)
   )
 
-  const panels: GridPanelDef[] = [
-    {
-      id: 'anomaly-filters',
-      title: 'Filters',
-      defaultLayout: { x: 0, y: 0, w: 12, h: 1, minW: 4, minH: 1 },
-      render: () => (
-        <FiltersPanel
-          deviceTypeFilter={deviceTypeFilter}
-          setDeviceTypeFilter={setDeviceTypeFilter}
-          severityFilter={severityFilter}
-          setSeverityFilter={setSeverityFilter}
-        />
-      ),
-    },
-    {
-      id: 'anomaly-feed',
-      title: 'Anomaly Transitions',
-      // Taller default than the old h:6 (540px) — cards were wrapping to
-      // several rows and needing an inner scroll to see the rest even with
-      // a modest number of anomalies. Panel is still user-resizable.
-      defaultLayout: { x: 0, y: 1, w: 12, h: 12, minW: 4, minH: 3 },
-      render: () => <FeedPanel filtered={filtered} />,
-    },
-  ]
-
-  return <DashboardGrid storageKey="dashboard.grid.anomalies" panels={panels} />
+  // Plain flex-column layout (same shell as Overview.tsx) instead of the
+  // draggable/resizable DashboardGrid this used before — that grid put
+  // Filters and the whole anomaly feed each inside their own fixed-height,
+  // independently-scrolling panel, which meant every card lived inside one
+  // scrollable box within a box. Here the page itself scrolls, same as
+  // Overview's Current Anomalies section.
+  return (
+    <div style={{ padding: 'var(--cmom-space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--cmom-space-5)' }}>
+      <FiltersPanel
+        deviceTypeFilter={deviceTypeFilter}
+        setDeviceTypeFilter={setDeviceTypeFilter}
+        severityFilter={severityFilter}
+        setSeverityFilter={setSeverityFilter}
+      />
+      <FeedPanel filtered={filtered} />
+    </div>
+  )
 }
 
 const mapStateToProps = (state: AppState) => ({

@@ -77,6 +77,20 @@ export function useDiurnalAnomaly(
  * for periodic-scan consumers (the Anomalies feed, fleet severity rollups)
  * that can't call useDiurnalAnomaly per-type in a loop.
  */
+/**
+ * Worst (largest-magnitude) of a diurnal reading's two levels (hour-of-day
+ * avg vs. normalized shape) — the same "worse of the two" rule TrendPanel
+ * applies inline for its own badge, hoisted here so FlowKpiCard/SiteHealth
+ * can share it instead of re-deriving it. Undefined when neither level has
+ * published yet ("no comparison yet", not "OK" — see severityFromDiurnalLevel).
+ */
+export function worstDiurnalAnomalyLevel(d: DiurnalAnomaly | undefined): number | undefined {
+  if (!d || (d.avgAnomalyLevel === undefined && d.normalAnomalyLevel === undefined)) {
+    return undefined
+  }
+  return Math.abs(d.normalAnomalyLevel ?? 0) > Math.abs(d.avgAnomalyLevel ?? 0) ? d.normalAnomalyLevel : d.avgAnomalyLevel
+}
+
 export function collectDiurnalAnomaliesForSite(siteNode: q.TreeNode<any>, siteNumber: string): DiurnalAnomaly[] {
   const out: DiurnalAnomaly[] = []
   for (const measurementType of DIURNAL_MEASUREMENT_TYPES) {

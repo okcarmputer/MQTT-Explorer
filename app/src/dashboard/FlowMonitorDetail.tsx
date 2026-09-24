@@ -1,14 +1,16 @@
 import * as React from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
-import { ALL_TIME_VALUE } from './TimeRangeToggle'
 import DeviceHeader from './DeviceHeader'
 import DiurnalGaugeCard from './widgets/DiurnalGaugeCard'
 import { useSqlFlowBaseline } from './useSqlFlowBaseline'
+import { useSqlFlowDiurnalAnomalies } from './useSqlFlowDiurnalAnomalies'
 import { formatPortAttributes, useSqlFlowPortInfo } from './useSqlFlowPortInfo'
 import { formatFlowPortInfo, extractDiameter, readPortsForNode } from './useFlowPortInfo'
-import { flowChannels } from './config'
-import { DiurnalMeasurementType, useDiurnalAnomaly } from './useDiurnalAnomalies'
+import { flowChannels, severityFromDiurnalLevel, severityFromPayload, gpmToMgd } from './config'
+import { DiurnalMeasurementType, useDiurnalAnomaly, worstDiurnalAnomalyLevel } from './useDiurnalAnomalies'
+import FlowKpiRow, { FlowKpiMetric, SiteHealthIssue } from './widgets/FlowKpiRow'
 import { humanizeKey } from './useFlowSiteInfo'
 import { useManholeInfo } from './useManholeInfo'
 import PipeGauge from './widgets/PipeGauge'
@@ -16,18 +18,17 @@ import ManholeGauge from './widgets/ManholeGauge'
 import ManholeInfoCard from './widgets/ManholeInfoCard'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
 import { useFitRowHeight } from './widgets/useFitRowHeight'
+import { extractPayloadTimestamp } from '../helper/extractPayloadTimestamp'
+import { SegmentedControl } from './widgets/Controls'
+import HachLiveCharts from './HachLiveCharts'
 
-// Flow monitor channel trend charts (Level/Velocity/Flow) default to a wider
-// window than the pump-station default (30min) — these devices are watched
-// over longer horizons — and drop the sub-hour presets that aren't useful here.
-const FLOW_CHANNEL_TIME_RANGE_OPTIONS = [
-  { label: '1hr', value: '1h' },
-  { label: '2hr', value: '2h' },
-  { label: '6hr', value: '6h' },
-  { label: '24hr', value: '24h' },
-  { label: 'All', value: ALL_TIME_VALUE },
-]
-const FLOW_CHANNEL_DEFAULT_TIME_RANGE = '2h'
+// Flow monitor channel trend charts (Level/Velocity/Flow) are fixed to the
+// last 24 hours with no user-adjustable toggle — "All time" and other wide
+// windows packed too many points into the chart to read at a glance, and
+// deeper historical/trend analysis for these sites happens against SQL
+// directly (see FlowMonitorDetail's "Diurnal Anomaly History (SQL)" panel),
+// not by widening these charts' own window.
+const FLOW_CHANNEL_DEFAULT_TIME_RANGE = '24h'
 
 interface Props {
   deviceKey: string
@@ -39,6 +40,14 @@ interface Props {
 export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack }: Props) {
   const [tick, setTick] = React.useState(0)
   const [manholeView, setManholeView] = React.useState(false)
+  // Site overview (this page's own panels) vs. the embedded Hach live charts.
+  // Kept in the URL (?view=live) rather than local state so it survives
+  // switching between sites and can be linked to directly.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view: 'overview' | 'live' = searchParams.get('view') === 'live' ? 'live' : 'overview'
+  const setView = (next: 'overview' | 'live') => {
+    setSearchParams(next === 'live' ? { view: 'live' } : {}, { replace: true })
+  }
 
   React.useEffect(() => {
     const rerender = () => setTick(t => t + 1)
@@ -138,6 +147,14 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   // server-side or in Electron desktop mode — that's expected, not an error.
   const sqlBaseline = useSqlFlowBaseline(deviceKey)
 
+  // diurnal_detector.py's own SQL table (dbo.Flow_Monitor_Diurnal_Anomalies,
+  // dev server today) — history/trend source for this site's diurnal
+  // detector, separate from both the live MQTT diurnal reading above (which
+  // only ever holds the latest cycle) and sqlBaseline above (the monthly/CHA
+  // detector's own SQL table). Undefined/unconfigured the same way every
+  // other useSql* hook degrades — see useSqlFlowDiurnalAnomalies.ts.
+  const diurnalHistory = useSqlFlowDiurnalAnomalies(deviceKey, 7 * 24)
+
   // Pipe/port shape + dimension, straight from the live MQTT
   // flow_monitors/{site}/ports/{port_id} topic fm_mqtt.py already publishes
   // (see useFlowPortInfo) — this is the primary source, since it's always
@@ -192,10 +209,78 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   // useFitRowHeight — the two need to agree on the same row math.
   const ROW1_H = 17
   const ROW2_H = 16
+  const ROW3_H = 12
   const channelOrder = ['level', 'flow', 'velocity']
   const orderedChannels = [...channels].sort((a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key))
   const chartRows = Math.max(1, Math.ceil(orderedChannels.length / 3))
-  const totalRows = ROW1_H + ROW2_H * chartRows
+  const totalRows = ROW1_H + ROW2_H * chartRows + ROW3_H
+
+  // Current value + both detectors' severities, per channel — read the same
+  // way TrendPanel reads its own node (payload.Value / sibling .../anomaly
+  // topic), just gathered once here so the KPI row and Site Health can share
+  // one pass over the three channels instead of each re-deriving it.
+  const kpiMetrics: FlowKpiMetric[] = orderedChannels.map(c => {
+    const payload = c.node?.message?.payload?.toUnicodeString()
+    let value: number | undefined
+    let measuredAt: Date | undefined
+    if (payload) {
+      try {
+        const json = JSON.parse(payload)
+        value = json.Value !== undefined ? Number(json.Value) : undefined
+        measuredAt = extractPayloadTimestamp(json)
+      } catch {
+        value = undefined
+      }
+    }
+    const anomalyNode = c.node?.edges['anomaly']?.target
+    const monthlySeverity = severityFromPayload(anomalyNode?.message?.payload?.toUnicodeString())
+    const diurnal = diurnalByType[c.label as DiurnalMeasurementType]
+    const diurnalLevel = worstDiurnalAnomalyLevel(diurnal)
+    const diurnalSeverity = diurnalLevel === undefined ? undefined : severityFromDiurnalLevel(diurnalLevel)
+    return {
+      key: c.key,
+      label: c.label,
+      unit: c.unit,
+      value,
+      monthlySeverity,
+      diurnalSeverity,
+      // measuredAt (the device's own reading time, parsed out of the
+      // payload) drives the tooltip; lastReceivedAt (when this app actually
+      // got the message) drives the LIVE/STALE/OFFLINE dot itself — same
+      // "measured vs. seen" split TrendPanel already makes for the same
+      // reason (a replayed/delayed message shouldn't read as freshly live).
+      measuredAt,
+      lastReceivedAt: c.node?.message?.received,
+    }
+  })
+
+  // Keyed by the diurnal engine's own measurement-type vocabulary (matches
+  // kpiMetrics' `label`, since flowChannels' labels are already "Flow" /
+  // "Level" / "Velocity") — feeds DiurnalGaugeCard's measurement bar so it
+  // always compares the *current* live reading against the normalized/
+  // average diurnal bars, not the diurnal detector's own last-evaluated
+  // measurementValue (see that component's comment for why those can differ).
+  // Flow specifically needs a unit conversion first: the live channel reads
+  // GPM (flowChannels' own 'gpm' unit) but AvgDiurnal/NormDiurnal are MGD
+  // (see gpmToMgd's comment in config.ts) — without this, the "measurement"
+  // bar would plot a GPM number on the same axis as two MGD ones, off by a
+  // factor of ~1440000.
+  const liveValueByType = Object.fromEntries(
+    kpiMetrics.map(m => [m.label, m.value === undefined ? undefined : m.label === 'Flow' ? gpmToMgd(m.value) : m.value])
+  ) as Record<DiurnalMeasurementType, number | undefined>
+  const liveMeasuredAtByType = Object.fromEntries(kpiMetrics.map(m => [m.label, m.measuredAt])) as Record<
+    DiurnalMeasurementType,
+    Date | undefined
+  >
+
+  const siteHealthIssues: SiteHealthIssue[] = kpiMetrics.flatMap(c => {
+    const issues: SiteHealthIssue[] = []
+    if (c.monthlySeverity !== 'OK') issues.push({ metric: c.label, detector: 'Monthly', severity: c.monthlySeverity })
+    if (c.diurnalSeverity !== undefined && c.diurnalSeverity !== 'OK') {
+      issues.push({ metric: c.label, detector: 'Diurnal', severity: c.diurnalSeverity })
+    }
+    return issues
+  })
   // Scales PanelGrid's rowHeight so this page's default layout fills
   // whatever vertical space is actually available instead of a fixed
   // 32px/row layout that may run taller than the viewport — see
@@ -206,10 +291,26 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <DeviceHeader titleParts={[siteLocation, siteName]} identifier={deviceKey} onBack={onBack} />
+      <DeviceHeader
+        titleParts={[siteLocation, siteName]}
+        identifier={deviceKey}
+        onBack={onBack}
+        kpiRow={<FlowKpiRow metrics={kpiMetrics} issues={siteHealthIssues} />}
+        actions={
+          <SegmentedControl
+            ariaLabel="Site view"
+            value={view}
+            onChange={setView}
+            options={[
+              { label: 'Site overview', value: 'overview' },
+              { label: 'Live Charts', value: 'live' },
+            ]}
+          />
+        }
+      />
 
       <div ref={fitRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-      {(() => {
+      {view === 'live' ? <HachLiveCharts siteNumber={deviceKey} /> : (() => {
         // if/else rather than a chained ternary — a 3-way ternary here reads
         // worse than the equivalent explicit branches.
         let pipeContent: React.ReactNode
@@ -312,7 +413,14 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
             title: 'Diurnal comparison (current hour/month)',
             defaultLayout: { x: 9, y: 0, w: 3, h: ROW1_H },
             autoHeight: true,
-            content: <DiurnalGaugeCard diurnalByType={diurnalByType} pipeDiameterValue={pipeDiameterValue} />,
+            content: (
+              <DiurnalGaugeCard
+                diurnalByType={diurnalByType}
+                pipeDiameterValue={pipeDiameterValue}
+                liveValueByType={liveValueByType}
+                liveMeasuredAtByType={liveMeasuredAtByType}
+              />
+            ),
           },
           // One resizable panel per channel (rather than one "Level / Velocity
           // / Flow" panel holding all three charts in a fixed-size CSS grid)
@@ -345,8 +453,8 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
                   diurnalAvgLevel={diurnalByType[c.label as DiurnalMeasurementType]?.avgAnomalyLevel}
                   diurnalNormalLevel={diurnalByType[c.label as DiurnalMeasurementType]?.normalAnomalyLevel}
                   range={c.key === 'level' && pipeDiameterValue !== undefined ? [0, pipeDiameterValue] : undefined}
-                  timeRangeOptions={FLOW_CHANNEL_TIME_RANGE_OPTIONS}
                   defaultTimeRange={FLOW_CHANNEL_DEFAULT_TIME_RANGE}
+                  hideTimeRangeToggle
                   fillHeight
                   bare
                 />
@@ -354,13 +462,62 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
             }
             return panel
           }),
+          {
+            id: 'diurnal-anomaly-history',
+            title: 'Diurnal Anomaly History (SQL, last 7 days)',
+            defaultLayout: { x: 0, y: ROW1_H + ROW2_H * chartRows, w: 12, h: ROW3_H },
+            autoHeight: true,
+            content: (() => {
+              if (!diurnalHistory?.configured) {
+                return <div style={{ opacity: 0.7 }}>SQL diurnal-anomaly reporting isn't configured for this app instance.</div>
+              }
+              if (diurnalHistory.rows.length === 0) {
+                return <div style={{ opacity: 0.7 }}>No flagged diurnal anomalies for this site in the last 7 days.</div>
+              }
+              return (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', opacity: 0.7 }}>
+                        <th style={{ padding: '4px 8px' }}>Time</th>
+                        <th style={{ padding: '4px 8px' }}>Measurement</th>
+                        <th style={{ padding: '4px 8px' }}>Compared To</th>
+                        <th style={{ padding: '4px 8px' }}>Value</th>
+                        {/* Signed — negative means below baseline, not "less severe";
+                            see FlowMonitorDiurnalAnomalyRow's own comment. */}
+                        <th style={{ padding: '4px 8px' }}>Anomaly Value</th>
+                        <th style={{ padding: '4px 8px' }}>Avg Diurnal</th>
+                        <th style={{ padding: '4px 8px' }}>Norm Diurnal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diurnalHistory.rows.map(row => (
+                        <tr key={row.anomalyId} style={{ borderTop: '1px solid var(--cmom-border, rgba(128,128,128,0.2))' }}>
+                          <td style={{ padding: '4px 8px' }}>{new Date(row.measurementTime).toLocaleString()}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.measurementType}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.anomalyType}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.measurementValue ?? '—'}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.anomalyValue}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.avgDiurnal ?? '—'}</td>
+                          <td style={{ padding: '4px 8px' }}>{row.normDiurnal ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })(),
+          },
         ]
 
         // Bumped from "...-v2" — row 1 is now four equal columns (Diurnal
         // comparison moved out of a stacked-under-Site-Attributes layout
         // into its own column) and PanelGrid's saved layout otherwise wins
         // over new defaultLayout values for any panel id a user's browser
-        // already has a stored position for.
+        // already has a stored position for. The Flow/Level/Velocity/Site
+        // Health KPI summary lives in DeviceHeader's fixed kpiRow slot
+        // instead of PanelGrid — it's meant to always be visible in the same
+        // spot, not draggable/resizable/hideable like everything else here.
         return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v3" panels={panels} rowHeight={rowHeight} />
       })()}
       </div>

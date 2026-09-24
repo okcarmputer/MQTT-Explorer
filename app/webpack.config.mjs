@@ -66,6 +66,11 @@ export default {
           {
             loader: 'ts-loader',
             options: {
+              // Pinned: otherwise ts-loader looks for a tsconfig starting
+              // from the first file it compiles, and when that's a shared
+              // ../events file it picks up the root (backend) tsconfig —
+              // CommonJS, no JSX — for the whole app build.
+              configFile: `${__dirname}/tsconfig.json`,
               transpileOnly: true,
               experimentalWatchApi: true,
             },
@@ -93,6 +98,7 @@ export default {
     new HtmlWebpackPlugin({ template: './index.html', file: './build/index.html', inject: false }),
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+      'process.env.HACH_LIVE_URL': JSON.stringify(process.env.HACH_LIVE_URL || ''),
     }),
   ],
   externals: {},

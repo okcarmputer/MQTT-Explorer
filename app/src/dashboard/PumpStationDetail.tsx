@@ -1,10 +1,9 @@
 import * as React from 'react'
 import * as q from '../../../backend/src/Model'
 import TrendPanel from './TrendPanel'
-import ValuePanel from './ValuePanel'
 import DigitalInputRow from './DigitalInputRow'
 import DeviceHeader from './DeviceHeader'
-import { readGroupFields } from './pumpStationLeaf'
+import { readGroupFields, readLeafValue } from './pumpStationLeaf'
 import { usePumpStationSummary, resolveWetWellLevelFt } from './usePumpStationSummary'
 import { useSqlWetWellInfo } from './useSqlWetWellInfo'
 import WetWellTankGauge from './widgets/WetWellTankGauge'
@@ -12,6 +11,8 @@ import { RuntimeClock } from './widgets/Readings'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
 import { useFitRowHeight } from './widgets/useFitRowHeight'
 import { buildPumpStationLayout, layoutKindFor } from './pumpStationLayout'
+import PumpKpiRow from './widgets/PumpKpiRow'
+import { severityFromPayload } from './config'
 
 interface Props {
   deviceKey: string
@@ -235,6 +236,14 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
     () => resolveWetWellLevelFt(summary, wetWell?.currentLevelFt),
     [summary, wetWell?.currentLevelFt]
   )
+  const levelSeverity = severityFromPayload(levelInput?.node.edges['anomaly']?.target?.message?.payload?.toUnicodeString())
+
+  // Read directly here (rather than through ValuePanel) since these now
+  // live in the fixed KPI header row instead of their own PanelGrid card —
+  // see PumpKpiRow's `power` prop.
+  const acPowerValue = readLeafValue(acPowerVoltsNode)
+  const batteryValue = readLeafValue(batteryVoltsNode)
+  const temperatureValue = readLeafValue(temperatureValueNode)
 
   // Placement comes from the explicit per-analog-count layouts in
   // pumpStationLayout.ts rather than being packed at render time, so the
@@ -249,6 +258,17 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         titleParts={[summary.unitStatus['Description'], summary.unitStatus['Location']]}
         identifier={deviceKey}
         onBack={onBack}
+        kpiRow={
+          <PumpKpiRow
+            summary={summary}
+            currentLevelFt={currentLevelFt}
+            wetWellDepthFt={wetWell?.depthFt}
+            levelSeverity={levelSeverity}
+            acPowerVolts={acPowerValue}
+            batteryVolts={batteryValue}
+            temperature={temperatureValue}
+          />
+        }
       />
 
       <div ref={fitRef} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
@@ -266,6 +286,8 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
                 dotPath="value"
                 unit={a.json.ScaledUnits}
                 stateDescription={a.json.StateDescription}
+                defaultTimeRange="24h"
+                hideTimeRangeToggle
                 fillHeight
                 bare
               />
@@ -316,7 +338,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
         // where/how big they're placed differs between the single-graph and
         // general cases below.
         // Dimension source labeling — dimensionsSource is set by
-        // getPumpStationWetWellInfo (src/sqlReporting.ts) to whichever of
+        // getPumpStationWetWellInfoBatch (src/sqlReporting.ts) to whichever of
         // the two sources actually won (spreadsheet always wins when it has
         // an entry at all); sqlParsedDiameterFt/sqlParsedDepthFt carry the
         // Comments-regex value even when it lost, so an overlap (both
@@ -332,13 +354,16 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
             : undefined
 
         const wetWellInfoContent = !wetWell ? (
-          <div style={{ opacity: 0.7 }}>No GIS/OPC record found for this station.</div>
+          <div style={{ opacity: 0.7 }}>
+            {wetWellInfo?.pending ? 'Loading from SQL…' : 'No GIS/OPC record found for this station.'}
+          </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
             <div style={{ flex: '1 1 260px', minWidth: 0 }}>
               <div className="cmom-label" style={{ marginBottom: 6 }}>
                 From SQL (SPUMPSTA / OPCAudit_Live)
               </div>
+              {wetWellInfo?.pending && <div style={{ opacity: 0.7, fontSize: 12 }}>Loading from SQL…</div>}
               <div className="cmom-device-card-details">
                 <Row label="Facility ID" value={wetWell.facilityId} />
                 <Row label="Facility Name" value={wetWell.facilityName} />
@@ -416,14 +441,6 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
             </div>
           )
 
-        const powerTempContent = (
-          <div className="cmom-card-row">
-            {acPowerVoltsNode && <ValuePanel title="AC Power" node={acPowerVoltsNode} valuePath="value" unit="V" />}
-            {batteryVoltsNode && <ValuePanel title="Battery State" node={batteryVoltsNode} valuePath="value" unit="V" />}
-            {temperatureValueNode && <ValuePanel title="Temperature" node={temperatureValueNode} valuePath="value" />}
-          </div>
-        )
-
         const pumpRuntimesContent =
           summary.pumpRuntimes.length === 0 ? (
             <div style={{ opacity: 0.7 }}>No pump runtime data reported yet.</div>
@@ -481,12 +498,6 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
             title: 'Unit Status',
             defaultLayout: layout.fixed['unit-status'],
             content: unitStatusContent,
-          },
-          {
-            id: 'power-temperature',
-            title: 'Power & Temperature',
-            defaultLayout: layout.fixed['power-temperature'],
-            content: powerTempContent,
           },
           {
             id: 'pump-runtimes',

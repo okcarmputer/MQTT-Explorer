@@ -9,6 +9,13 @@ export interface DigitalInputSummary {
   description: string
   alarmDescription: string
   severity: Severity
+  // Raw ps_mqtt.py "Alarm" boolean, straight off the DI leaf — for a true
+  // alarm input this means "active"; for a "Pump N Run Status" input this is
+  // how the SCADA point encodes "running" (there's no separate run/not-run
+  // field in the schema). PumpKpiRow relies on this to derive Pump 1/2's
+  // running state; DigitalInputRow's own alarm-description text is a
+  // separate, independent read of the same underlying field.
+  alarm: boolean
 }
 
 export interface AnalogInputSummary {
@@ -32,6 +39,12 @@ export interface PumpRuntimeSummary {
   // no explicit start-count field in the schema, so this is a best-effort
   // stand-in; undefined (not shown) if the payload doesn't carry it.
   hourlyStart?: string
+  // The PumpRuntime{n} group node itself — PumpKpiRow reads its
+  // .../anomaly leaf directly (pump_detector.py's shadow-mode severity for
+  // PumpRuntimes; see config.ts's pumpStations comment) rather than this
+  // summary growing a `severity` field that every other consumer would also
+  // have to pay for.
+  node: q.TreeNode<any>
 }
 
 export interface PumpStationSummary {
@@ -74,6 +87,7 @@ export function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
       description: d.json.Description,
       alarmDescription: d.json.AlarmDescription || '',
       severity: severityFromPayload(d.node.edges['anomaly']?.target.message?.payload?.toUnicodeString()),
+      alarm: Boolean(d.json.Alarm),
     }))
     .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
 
@@ -92,7 +106,7 @@ export function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
 
   const runtimeGroup = deviceNode.edges['PumpRuntimes']?.target
   const pumpRuntimes: PumpRuntimeSummary[] = (runtimeGroup?.edgeArray ?? [])
-    .map(edge => ({ key: edge.name, json: readGroupFields(edge.target) }))
+    .map(edge => ({ key: edge.name, node: edge.target, json: readGroupFields(edge.target) }))
     .filter(r => isNonZero(r.json.Today) || isNonZero(r.json.Yesterday) || isNonZero(r.json.HourlyTotal))
     .map(r => ({
       key: r.key,
@@ -100,6 +114,7 @@ export function buildSummary(deviceNode: q.TreeNode<any>): PumpStationSummary {
       today: String(r.json.Today ?? '—'),
       yesterday: String(r.json.Yesterday ?? '—'),
       hourlyStart: isNonZero(r.json.HourlyStart) ? String(r.json.HourlyStart) : undefined,
+      node: r.node,
     }))
     .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
 

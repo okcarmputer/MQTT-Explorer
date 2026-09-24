@@ -761,12 +761,16 @@
   margin-bottom: var(--cmom-space-3);
 }
 
+/* Back button + device name/location share this row. container-type lets
+   the title's font-size (below) respond to the actual space left over next
+   to the fixed-width back button — shrinking the name instead of clipping
+   or wrapping it under the button. */
 .cmom-device-header__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--cmom-space-3);
-  margin-bottom: var(--cmom-space-3);
+  margin-bottom: var(--cmom-space-2);
+  container-type: inline-size;
 }
 
 .cmom-device-header__actions {
@@ -805,10 +809,18 @@
   outline-offset: 2px;
 }
 
+/* Device name/location, next to the back button. Sized in container-query
+   units (cqi = % of .cmom-device-header__bar's own content width) so a long
+   name shrinks to fit whatever room is left next to the fixed-width back
+   button, rather than being clipped with an ellipsis or wrapping onto its
+   own line underneath. clamp()'s max keeps a short name from rendering
+   oversized on a wide window. */
 .cmom-device-header__title {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--cmom-font-mono);
-  font-size: 24px;
+  font-size: clamp(14px, 4.2cqi, 24px);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: 0.02em;
@@ -816,22 +828,87 @@
   color: var(--cmom-text-primary);
 }
 
+/* Identifier (serial/site number) + the KPI strip share this row — the
+   chips sit immediately to its right instead of wrapping below as their
+   own full-width band. Wraps to a second line only once the window is too
+   narrow to fit both, rather than ever forcing a horizontal scrollbar. */
+.cmom-device-header__titlerow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cmom-space-4, 16px);
+}
+
 .cmom-device-header__identifier {
-  margin-top: var(--cmom-space-1);
   font-family: var(--cmom-font-mono);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--cmom-text-muted);
+  flex: 0 0 auto;
 }
 
-@media (max-width: 720px) {
-  .cmom-device-header__title {
-    font-size: 18px;
-  }
+/* KPI strip (FlowMonitorDetail/PumpStationDetail) — lives inside the fixed
+   title area, not the draggable PanelGrid below it, so it can't be dragged,
+   resized, or hidden by accident: it's meant to always be the first thing
+   read on the page. Deliberately NOT .cmom-card: a flat, slightly tinted
+   chip with a colored top accent bar (severity-driven) rather than the
+   grid's lifted/shadowed card look, so this row reads as "page status," not
+   as one more draggable widget among many. */
+.cmom-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  /* Sits on the title row now (see .cmom-device-header__titlerow), pinned
+     to its right rather than centered/stretched under it. */
+  margin-left: auto;
 }
 
+/* Sized to its own content (no fixed width) — a value/label/badge is never
+   clipped or ellipsized; the card grows to whatever width the text inside
+   it actually needs instead. min-width keeps a very short value (e.g. "—")
+   from rendering as a sliver. */
+.cmom-kpi-chip {
+  flex: 0 0 auto;
+  min-width: 92px;
+  background: var(--cmom-surface-elevated, #1c2229);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 3px solid var(--chip-accent, var(--cmom-text-muted));
+  border-radius: var(--cmom-radius-sm);
+  padding: 6px 10px;
+}
+
+.cmom-kpi-chip__label {
+  font-family: var(--cmom-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cmom-text-muted);
+  white-space: nowrap;
+}
+
+.cmom-kpi-chip__value {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--cmom-text-primary);
+  white-space: nowrap;
+}
+
+.cmom-kpi-chip__badges {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.cmom-kpi-chip__badges .cmom-badge {
+  padding: 1px 5px;
+  font-size: 9px;
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------------------
  * Filter controls (widgets/Controls.tsx) — EXPLORER-005.
@@ -1021,4 +1098,42 @@
 
 :root[data-cmom-theme='dark'] body {
   background: #0a0e14;
+}
+
+/* Hach live charts embed (HachLiveCharts.tsx). The iframe carries its own
+   design; this only sizes it and styles the "server unreachable" notice. */
+.cmom-hach-live__frame {
+  display: block;
+  width: 100%;
+  height: 1200px;
+  border: 0;
+  background: transparent;
+}
+
+.cmom-hach-live__notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cmom-space-2, 8px);
+  max-width: 720px;
+  margin: var(--cmom-space-4, 16px) 0;
+  padding: var(--cmom-space-3, 12px) var(--cmom-space-4, 16px);
+  color: var(--cmom-text-muted);
+  background: var(--cmom-surface);
+  border: 1px solid var(--cmom-border);
+  border-radius: var(--cmom-radius-sm);
+}
+
+.cmom-hach-live__notice--down {
+  color: var(--cmom-text-primary);
+  border-left: 3px solid var(--cmom-status-warning);
+}
+
+.cmom-hach-live__notice code {
+  font-family: var(--cmom-font-mono);
+  font-size: 12px;
+}
+
+.cmom-hach-live__hint {
+  color: var(--cmom-text-muted);
+  font-size: 12px;
 }

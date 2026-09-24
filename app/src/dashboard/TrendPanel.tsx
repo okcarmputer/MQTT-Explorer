@@ -44,6 +44,12 @@ interface Props {
   // instead of the pump-station-oriented default below.
   timeRangeOptions?: TimeRangeOption[]
   defaultTimeRange?: string
+  // Hides the 1min/5min/.../All toggle entirely, locking the chart to
+  // defaultTimeRange — for pages (FlowMonitorDetail, PumpStationDetail) that
+  // want a fixed, easy-to-read window rather than a user-adjustable one;
+  // historical/trend analysis for those happens against SQL directly, not
+  // by widening these charts' own window.
+  hideTimeRangeToggle?: boolean
   // When true, the card and its chart fill whatever height a resizable
   // parent panel gives them, instead of staying content-sized — see
   // dashboard/widgets/PanelGrid.tsx.
@@ -98,6 +104,7 @@ export default function TrendPanel({
   range,
   timeRangeOptions,
   defaultTimeRange,
+  hideTimeRangeToggle,
   fillHeight,
   bare,
   stateDescription,
@@ -215,16 +222,21 @@ export default function TrendPanel({
           <SeverityBadge severity={severity} label="Monthly" title={severityBadgeTitle} />
         )}
       </div>
-      <TimeRangeToggle value={timeRange} onChange={setTimeRange} options={timeRangeOptions} />
+      {!hideTimeRangeToggle && <TimeRangeToggle value={timeRange} onChange={setTimeRange} options={timeRangeOptions} />}
       <div style={fillHeight ? { marginTop: 4, flex: '1 1 auto', minHeight: 0 } : { marginTop: 4 }}>
         <TopicPlot
           node={node}
           history={node.messageHistory}
           dotPath={dotPath}
           timeInterval={timeRange || undefined}
+          // hideTimeRangeToggle callers (FlowMonitorDetail/PumpStationDetail)
+          // fix the *initial* view to defaultTimeRange but still want
+          // scroll/drag zoom-out to reveal older history — see TopicPlot's
+          // own comment on clipToTimeInterval.
+          clipToTimeInterval={!hideTimeRangeToggle}
           centerNow
-          axisColor="#8b949e"
-          gridColor="#2a3139"
+          axisColor="#adb7c2"
+          gridColor="#48525e"
           pointRingColor="#1c2229"
           range={range}
           fillHeight={fillHeight}
@@ -232,20 +244,30 @@ export default function TrendPanel({
       </div>
       <div className="cmom-value" style={{ marginTop: 4 }}>
         {valueText !== undefined ? `${valueText}${unit ? ` ${unit}` : ''}` : 'No reading yet'}
-        {measurementText && (
-          <span style={{ fontSize: '0.55em', fontWeight: 400, opacity: 0.6 }}> — measured {measurementText}</span>
-        )}
       </div>
-      {lastSeenText && (
-        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Last seen: {lastSeenText}</div>
+      {measurementText && (
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--cmom-accent, #58a6ff)',
+            marginTop: 2,
+          }}
+        >
+          Last measured at {measurementText}
+        </div>
       )}
-      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Baseline (MQTT): {baselineText || 'not available yet'}</div>
-      {sqlBaselineText !== undefined && (
-        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Baseline (SQL): {sqlBaselineText}</div>
+      {lastSeenText && (
+        <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>Last seen: {lastSeenText}</div>
+      )}
+      {(sqlBaselineText ?? baselineText) && (
+        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }} title={`Baseline (MQTT): ${baselineText || 'not available yet'}${sqlBaselineText !== undefined ? ` · Baseline (SQL): ${sqlBaselineText}` : ''}`}>
+          Expected: {sqlBaselineText ?? baselineText}
+        </div>
       )}
       {diurnalText !== undefined && (
-        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>Diurnal (hour-of-day): {diurnalText}</span>
+        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }} title={`Diurnal (hour-of-day): ${diurnalText}`}>
+          <span>vs. typical</span>
           {worstDiurnalLevel !== undefined && (
             <span className="cmom-badge" style={{ minWidth: 84, textAlign: 'center', color: diurnalFlagColor(worstDiurnalLevel) }}>
               {diurnalFlagLabel(worstDiurnalLevel)}

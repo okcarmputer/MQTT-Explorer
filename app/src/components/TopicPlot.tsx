@@ -22,6 +22,15 @@ interface Props {
   gridColor?: string
   pointRingColor?: string
   fillHeight?: boolean
+  // When false, timeInterval only sets the chart's *initial* view window
+  // (via Chart's timeRangeStart/centerNow) instead of also dropping every
+  // point outside it from `data` itself — so scrolling/zooming out on the
+  // chart can still reveal older history instead of finding nothing there
+  // (the underlying array never had it). Callers with a user-facing time
+  // range toggle (which re-fetches/re-filters on purpose when changed) keep
+  // the old clipping default; callers with a fixed initial window and no
+  // toggle (dashboard/TrendPanel with hideTimeRangeToggle) pass false.
+  clipToTimeInterval?: boolean
 }
 
 function filterUsingTimeRange(startTime: number | undefined, data: Array<q.Message>) {
@@ -60,8 +69,13 @@ function measurementTime(message: q.Message, payload: string | undefined): numbe
   return message.received.getTime()
 }
 
-function nodeToHistory(decodeMessage: DecoderFunction, startTime: number | undefined, history: q.MessageHistory) {
-  return filterUsingTimeRange(startTime, history.toArray())
+function nodeToHistory(
+  decodeMessage: DecoderFunction,
+  startTime: number | undefined,
+  history: q.MessageHistory,
+  clip: boolean
+) {
+  return (clip ? filterUsingTimeRange(startTime, history.toArray()) : history.toArray())
     .map((message: q.Message) => {
       const decoded = decodeMessage(message)?.message?.toUnicodeString()
       return { x: measurementTime(message, decoded), y: toPlottableValue(decoded) }
@@ -73,9 +87,10 @@ function nodeDotPathToHistory(
   decodeMessage: DecoderFunction,
   startTime: number | undefined,
   history: q.MessageHistory,
-  dotPath: string
+  dotPath: string,
+  clip: boolean
 ) {
-  return filterUsingTimeRange(startTime, history.toArray())
+  return (clip ? filterUsingTimeRange(startTime, history.toArray()) : history.toArray())
     .map((message: q.Message) => {
       let json: any = {}
       let decodedText: string | undefined
@@ -95,14 +110,15 @@ function nodeDotPathToHistory(
 function TopicPlot(props: Props) {
   const decodeMessage = useDecoder(props.node)
   const startOffset = props.timeInterval ? parseDuration(props.timeInterval) : undefined
+  const clip = props.clipToTimeInterval ?? true
   const data = React.useMemo(() => {
     if (!props.node) {
       return []
     }
 
     return props.dotPath
-      ? nodeDotPathToHistory(decodeMessage, startOffset, props.history, props.dotPath)
-      : nodeToHistory(decodeMessage, startOffset, props.history)
+      ? nodeDotPathToHistory(decodeMessage, startOffset, props.history, props.dotPath, clip)
+      : nodeToHistory(decodeMessage, startOffset, props.history, clip)
     // `props.history` itself (not just `.last()`) is a dependency because
     // history hydration (see helper/hydrateTopicHistory.ts) replaces the
     // whole buffer with a new, merged one *without* necessarily changing
@@ -110,11 +126,14 @@ function TopicPlot(props: Props) {
     // *before* whatever was already there, so `.last()` alone can stay
     // identical across that swap and this memo would never notice until an
     // unrelated dependency (e.g. the time-range toggle) happened to change.
-  }, [props.history, props.history.last(), props.history.count(), startOffset, props.dotPath])
+  }, [props.history, props.history.last(), props.history.count(), startOffset, props.dotPath, clip])
 
   return (
     <PlotHistory
       timeRangeStart={startOffset}
+      // Only meaningful for the chart's initial view window when data isn't
+      // clipped to it (clip=false) — Chart's own useCustomXDomain still uses
+      // timeRangeStart to seed panDomain's starting point either way.
       centerNow={props.centerNow}
       color={props.color}
       axisColor={props.axisColor}

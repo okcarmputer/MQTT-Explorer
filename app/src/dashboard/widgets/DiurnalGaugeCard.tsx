@@ -1,10 +1,13 @@
 import * as React from 'react'
 import DiurnalBarChart, { DIURNAL_SERIES } from './DiurnalBarChart'
 import { DiurnalAnomaly, DiurnalMeasurementType, DIURNAL_MEASUREMENT_TYPES } from '../useDiurnalAnomalies'
-import { normalizeToUtcIfNoOffset } from '../../helper/extractPayloadTimestamp'
 
+// Flow reads 'MGD' here, not the live channel's own 'gpm' — this card's
+// values (normDiurnal/avgDiurnal from SQL, plus the gpmToMgd-converted live
+// measurement FlowMonitorDetail now passes in) are all MGD, matching
+// Flow_Monitor_Diurnal_Anomalies. See config.ts's gpmToMgd comment.
 const CHANNEL_UNIT: Record<DiurnalMeasurementType, string> = {
-  Flow: 'gpm',
+  Flow: 'MGD',
   Level: 'in',
   Velocity: 'fps',
 }
@@ -15,28 +18,33 @@ interface Props {
   // range TrendPanel's Level chart uses — so that bar reads against the
   // pipe's actual capacity instead of an arbitrary scale.
   pipeDiameterValue?: number
+  // The *live* Level/Velocity/Flow reading (same value the KPI header row
+  // shows), keyed by measurement type — used for the "measurement" bar
+  // instead of the diurnal detector's own measurementValue. The detector
+  // only re-publishes on its own cycle (see diurnal_detector.py), so its
+  // measurementValue can sit minutes-to-hours behind the channel's actual
+  // latest reading; comparing that stale number against normDiurnal/
+  // avgDiurnal read as "the chart disagrees with the live value" even
+  // though both were correct for their own moment. The live value is always
+  // current, so it's what gets compared against the normalized/average bars.
+  liveValueByType: Record<DiurnalMeasurementType, number | undefined>
+  liveMeasuredAtByType: Record<DiurnalMeasurementType, Date | undefined>
 }
 
-function channelMax(data: DiurnalAnomaly | undefined, isLevel: boolean, pipeDiameterValue: number | undefined): number {
+function channelMax(
+  data: DiurnalAnomaly | undefined,
+  liveValue: number | undefined,
+  isLevel: boolean,
+  pipeDiameterValue: number | undefined
+): number {
   if (isLevel && pipeDiameterValue) return pipeDiameterValue
-  const values = [data?.normDiurnal, data?.avgDiurnal, data?.measurementValue].filter(
-    (v): v is number => v !== undefined && !Number.isNaN(v)
-  )
+  const values = [data?.normDiurnal, data?.avgDiurnal, liveValue].filter((v): v is number => v !== undefined && !Number.isNaN(v))
   return values.length > 0 ? Math.max(...values) * 1.25 : 1
 }
 
-// measurement_time comes straight off the diurnal detector's payload as a
-// bare "YYYY-MM-DDTHH:mm:ss" string with no trailing 'Z'/offset — that's a
-// UTC instant as far as the device/detector is concerned, but `new Date()`
-// on a string like that gets silently reinterpreted as *local* time per the
-// JS date-time grammar (same bug this app already hit and fixed once for
-// TrendPanel's "measured ..." readout — see extractPayloadTimestamp.ts's own
-// comment). Route through the same normalizer here so this card doesn't
-// regress the same timezone bug in a second place.
-function measurementReadout(data: DiurnalAnomaly | undefined, unit: string): string | undefined {
-  if (data?.measurementValue === undefined) return undefined
-  const time = data.measurementTime ? new Date(normalizeToUtcIfNoOffset(data.measurementTime)).toLocaleString() : undefined
-  return `${data.measurementValue.toFixed(1)} ${unit}${time ? ` as of ${time}` : ''}`
+function measurementReadout(liveValue: number | undefined, measuredAt: Date | undefined, unit: string): string | undefined {
+  if (liveValue === undefined || Number.isNaN(liveValue)) return undefined
+  return `${liveValue.toFixed(1)} ${unit}${measuredAt ? ` as of ${measuredAt.toLocaleString()}` : ''}`
 }
 
 /**
@@ -56,7 +64,7 @@ function measurementReadout(data: DiurnalAnomaly | undefined, unit: string): str
  * layout let those drift out of alignment when one channel's text was
  * longer than another's.
  */
-export default function DiurnalGaugeCard({ diurnalByType, pipeDiameterValue }: Props) {
+export default function DiurnalGaugeCard({ diurnalByType, pipeDiameterValue, liveValueByType, liveMeasuredAtByType }: Props) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div
@@ -70,6 +78,7 @@ export default function DiurnalGaugeCard({ diurnalByType, pipeDiameterValue }: P
       >
         {DIURNAL_MEASUREMENT_TYPES.map(type => {
           const data = diurnalByType[type]
+          const liveValue = liveValueByType[type]
           const isLevel = type === 'Level'
           const unit = CHANNEL_UNIT[type]
           return (
@@ -77,9 +86,9 @@ export default function DiurnalGaugeCard({ diurnalByType, pipeDiameterValue }: P
               key={type}
               title={type}
               unit={unit}
-              values={{ normalized: data?.normDiurnal, average: data?.avgDiurnal, measurement: data?.measurementValue }}
-              max={channelMax(data, isLevel, pipeDiameterValue)}
-              measurementReadout={measurementReadout(data, unit)}
+              values={{ normalized: data?.normDiurnal, average: data?.avgDiurnal, measurement: liveValue }}
+              max={channelMax(data, liveValue, isLevel, pipeDiameterValue)}
+              measurementReadout={measurementReadout(liveValue, liveMeasuredAtByType[type], unit)}
             />
           )
         })}

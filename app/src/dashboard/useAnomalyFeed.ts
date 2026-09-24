@@ -32,6 +32,14 @@ export interface AnomalyEvent {
   // can be undefined on its own (the detector doesn't always publish both).
   normalAnomalyLevel?: number
   avgAnomalyLevel?: number
+  // The two diurnal baselines themselves (DiurnalAnomaly.avgDiurnal/
+  // normDiurnal — SQL's AvgDiurnal/NormDiurnal columns), alongside the
+  // measured value, so a diurnal card can show what was actually compared
+  // against, not just the resulting -3..3 level. Same "either can be
+  // undefined on its own" caveat as normalAnomalyLevel/avgAnomalyLevel.
+  avgDiurnal?: number
+  normDiurnal?: number
+  measurementValue?: number
 }
 
 /**
@@ -167,12 +175,23 @@ function useDiurnalAnomalyEvents(diurnalDevices: ChildTopic[], onEvent: (e: Anom
                 description: diurnalDescription(parsed),
                 normalAnomalyLevel: parsed.normalAnomalyLevel,
                 avgAnomalyLevel: parsed.avgAnomalyLevel,
+                avgDiurnal: parsed.avgDiurnal,
+                normDiurnal: parsed.normDiurnal,
+                measurementValue: parsed.measurementValue,
               }
-            : { severity: 'OK' as Severity, description: undefined, normalAnomalyLevel: undefined, avgAnomalyLevel: undefined }
+            : {
+                severity: 'OK' as Severity,
+                description: undefined,
+                normalAnomalyLevel: undefined,
+                avgAnomalyLevel: undefined,
+                avgDiurnal: undefined,
+                normDiurnal: undefined,
+                measurementValue: undefined,
+              }
         }
 
         const handler = () => {
-          const { severity, description, normalAnomalyLevel, avgAnomalyLevel } = evaluate()
+          const { severity, description, normalAnomalyLevel, avgAnomalyLevel, avgDiurnal, normDiurnal, measurementValue } = evaluate()
           const prev = previous.current.get(trackingKey) ?? 'OK'
           if (severity !== prev) {
             previous.current.set(trackingKey, severity)
@@ -187,13 +206,24 @@ function useDiurnalAnomalyEvents(diurnalDevices: ChildTopic[], onEvent: (e: Anom
               description,
               normalAnomalyLevel,
               avgAnomalyLevel,
+              avgDiurnal,
+              normDiurnal,
+              measurementValue,
             })
           }
         }
 
         // Seed known state on (re)mount, same "surface what's already active"
         // rationale as useDeviceTypeAnomalyEvents above.
-        const { severity: initialSeverity, description: initialDescription, normalAnomalyLevel: initialNormal, avgAnomalyLevel: initialAvg } = evaluate()
+        const {
+          severity: initialSeverity,
+          description: initialDescription,
+          normalAnomalyLevel: initialNormal,
+          avgAnomalyLevel: initialAvg,
+          avgDiurnal: initialAvgDiurnal,
+          normDiurnal: initialNormDiurnal,
+          measurementValue: initialMeasurementValue,
+        } = evaluate()
         const alreadyTracked = previous.current.has(trackingKey)
         previous.current.set(trackingKey, initialSeverity)
         if (!alreadyTracked && initialSeverity !== 'OK') {
@@ -208,6 +238,9 @@ function useDiurnalAnomalyEvents(diurnalDevices: ChildTopic[], onEvent: (e: Anom
             description: initialDescription,
             normalAnomalyLevel: initialNormal,
             avgAnomalyLevel: initialAvg,
+            avgDiurnal: initialAvgDiurnal,
+            normDiurnal: initialNormDiurnal,
+            measurementValue: initialMeasurementValue,
           })
         }
 

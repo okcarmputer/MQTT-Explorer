@@ -22,8 +22,9 @@ import {
   getFlowMonitorBaseline,
   getFlowMonitorHistory,
   getFlowMonitorPortInfo,
-  getPumpStationWetWellInfo,
+  getPumpStationWetWellInfoBatch,
   getManholeInfo,
+  getFlowMonitorDiurnalAnomalies,
 } from './sqlReporting'
 
 const PORT = process.env.PORT || 3000
@@ -95,6 +96,16 @@ async function startServer() {
   const defaultCspDirectives = { ...helmet.contentSecurityPolicy.getDefaultDirectives() }
   delete defaultCspDirectives['upgrade-insecure-requests']
 
+  // Hach live-charts server (see app/src/dashboard/config.ts HACH_LIVE_URL) —
+  // the flow monitor "Live Charts" view iframes it and pings /api/health, so
+  // its origin must be allowed in frame-src and connect-src.
+  let hachLiveOrigin = 'http://sv-dg-p01-flow:8050'
+  try {
+    hachLiveOrigin = new URL(process.env.HACH_LIVE_URL || hachLiveOrigin).origin
+  } catch {
+    console.warn(`Ignoring invalid HACH_LIVE_URL: ${process.env.HACH_LIVE_URL}`)
+  }
+
   // Build custom CSP directives, overriding defaults as needed
   const cspDirectives = {
     ...defaultCspDirectives,
@@ -105,7 +116,9 @@ async function startServer() {
     // Override style-src for Material-UI
     'style-src': ["'self'", "'unsafe-inline'"], // Required for Material-UI
     // Add WebSocket support
-    'connect-src': ["'self'", 'ws:', 'wss:'], // Allow WebSocket connections
+    'connect-src': ["'self'", 'ws:', 'wss:', hachLiveOrigin], // Allow WebSocket connections + Hach health check
+    'frame-src': ["'self'", hachLiveOrigin],
+    'child-src': ["'self'", hachLiveOrigin],
     // Allow data URIs for images
     'img-src': ["'self'", 'data:', 'blob:'],
     // Only add upgrade-insecure-requests if explicitly enabled via env var
@@ -393,12 +406,12 @@ async function startServer() {
     }
   })
 
-  backendRpc.on(RpcEvents.getPumpStationWetWellInfo, async ({ serial }) => {
+  backendRpc.on(RpcEvents.getPumpStationWetWellInfoBatch, async ({ serials }) => {
     try {
-      return await getPumpStationWetWellInfo(serial)
+      return { results: await getPumpStationWetWellInfoBatch(serials) }
     } catch (error) {
-      console.error('[SQL] getPumpStationWetWellInfo failed:', error instanceof Error ? error.message : error)
-      return { configured: true, serial, wetWell: null }
+      console.error('[SQL] getPumpStationWetWellInfoBatch failed:', error instanceof Error ? error.message : error)
+      return { results: {} }
     }
   })
 
@@ -408,6 +421,15 @@ async function startServer() {
     } catch (error) {
       console.error('[SQL] getManholeInfo failed:', error instanceof Error ? error.message : error)
       return { configured: true, records: [] }
+    }
+  })
+
+  backendRpc.on(RpcEvents.getFlowMonitorDiurnalAnomalies, async ({ siteNumber, hours }) => {
+    try {
+      return await getFlowMonitorDiurnalAnomalies(siteNumber, hours)
+    } catch (error) {
+      console.error('[SQL] getFlowMonitorDiurnalAnomalies failed:', error instanceof Error ? error.message : error)
+      return { configured: true, siteNumber, rows: [] }
     }
   })
 

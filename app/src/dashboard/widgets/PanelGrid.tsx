@@ -1,6 +1,17 @@
 import * as React from 'react'
 import { useResizeDetector } from 'react-resize-detector'
 import { ResponsiveGridLayout, Layout, LayoutItem } from 'react-grid-layout'
+// react-grid-layout's own drag/resize chrome (including the resize-handle
+// corner grip) is styled entirely by these two stylesheets — without them
+// the handle still exists in the DOM but renders with no size/position/
+// cursor, so cards are effectively not resizable. Previously only
+// DashboardGrid.tsx (a sibling grid, now unused — see Anomalies.tsx's own
+// comment on replacing it) imported these as a side effect; once nothing
+// referenced that file anymore, webpack stopped bundling them and this
+// grid's resize handles silently went dead. Import directly here instead of
+// depending on some other, unrelated file happening to pull them in.
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 
 export interface PanelSpec {
   id: string

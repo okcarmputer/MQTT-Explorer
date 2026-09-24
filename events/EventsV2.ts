@@ -46,12 +46,15 @@ export const RpcEvents = {
   getFlowMonitorPortInfo: {
     topic: 'sql/flow-monitor-port-info',
   } as RpcEvent<FlowMonitorPortInfoRequest, FlowMonitorPortInfoResponse>,
-  getPumpStationWetWellInfo: {
-    topic: 'sql/pump-station-wet-well-info',
-  } as RpcEvent<PumpStationWetWellInfoRequest, PumpStationWetWellInfoResponse>,
+  getPumpStationWetWellInfoBatch: {
+    topic: 'sql/pump-station-wet-well-info-batch',
+  } as RpcEvent<PumpStationWetWellInfoBatchRequest, PumpStationWetWellInfoBatchResponse>,
   getManholeInfo: {
     topic: 'sql/manhole-info',
   } as RpcEvent<void, ManholeInfoResponse>,
+  getFlowMonitorDiurnalAnomalies: {
+    topic: 'sql/flow-monitor-diurnal-anomalies',
+  } as RpcEvent<FlowMonitorDiurnalAnomaliesRequest, FlowMonitorDiurnalAnomaliesResponse>,
   getTopicHistory: {
     topic: 'history/topic',
   } as RpcEvent<TopicHistoryRequest, TopicHistoryResponse>,
@@ -147,6 +150,44 @@ export interface FlowMonitorHistoryResponse {
   points: FlowMonitorHistoryPoint[]
 }
 
+// diurnal_detector.py's own SQL table — separate from comparison_results/
+// FlowMonitorHistory above (that's the monthly/CHA detector). Lives on the
+// dev SQL Server today (see Anomaly_Detection/DEV_SETUP.md), so this reads
+// through its own pool (see isDiurnalReportingConfigured/SQL_DIURNAL_* in
+// src/sqlReporting.ts), not the main SQL_SERVER one. Row-per-(site, channel,
+// AnomalyType) — a site/channel can have up to two rows per MeasurementTime,
+// one for AnomalyType 'Avg' and one for 'Normalized'; not deduped/collapsed
+// here since the dashboard-side UX decision (show both vs. pick the worse
+// one) belongs to the caller, same as the MQTT payload's own two fields.
+export interface FlowMonitorDiurnalAnomaliesRequest {
+  siteNumber: string
+  hours: number
+}
+
+export interface FlowMonitorDiurnalAnomalyRow {
+  anomalyId: number
+  siteNumber: string
+  siteLocation: string | null
+  measurementType: 'Flow' | 'Level' | 'Velocity'
+  // 'Avg' | 'Normalized' — which baseline this row was compared against.
+  anomalyType: string
+  // -3..3, signed: negative = below baseline, positive = above. Severity is
+  // ABS(anomalyValue); the sign is direction, not severity — don't sort on
+  // this raw value expecting worst-first (see the SQL doc's own caveat).
+  anomalyValue: number
+  measurementValue: number | null
+  avgDiurnal: number | null
+  normDiurnal: number | null
+  measurementTime: string
+  detectedAt: string
+}
+
+export interface FlowMonitorDiurnalAnomaliesResponse {
+  configured: boolean
+  siteNumber: string
+  rows: FlowMonitorDiurnalAnomalyRow[]
+}
+
 // Pipe/port physical dimensions from dbo.hach_port_info — a site can have
 // more than one port (multiple rows), each with its own shape/dimension.
 // Deliberately narrow to the fields the dashboard actually displays (Shape,
@@ -177,23 +218,31 @@ export interface FlowMonitorPortInfoResponse {
 // dimension convention — reads from a table the user is creating separately
 // (working name: dbo.pump_station_wet_well), keyed by pump station serial
 // rather than a flow monitor site number. Until that table exists,
-// getPumpStationWetWellInfo degrades to configured:true with an empty list
+// getPumpStationWetWellInfoBatch degrades to configured:true with an empty list
 // (see src/sqlReporting.ts), same "unavailable, not an error" contract as
 // every other SQL-backed read in this app.
-export interface PumpStationWetWellInfoRequest {
-  serial: string
+//
+// Batched: one request covers every serial a page needs (the station list
+// used to fire one request per row), answered with two SQL queries total.
+export interface PumpStationWetWellInfoBatchRequest {
+  serials: string[]
+}
+
+// Keyed by the serial exactly as requested.
+export interface PumpStationWetWellInfoBatchResponse {
+  results: Record<string, PumpStationWetWellInfoResponse>
 }
 
 export interface PumpStationWetWellDimension {
   // 'cylinder' | 'rectangular' | null (unknown) — from the static OPC-serial
-  // dimensions table (src/wetWellDimensions.ts) when available, else parsed
+  // dimensions table (events/wetWellDimensions.ts) when available, else parsed
   // out of freeform Comments text.
   shape: 'cylinder' | 'rectangular' | null
   dimensionName: string | null
   dimensionValue: number | null
   dimensionUnits: string | null
   // Below: sourced from SPUMPSTA_H / OPCAudit_Live directly (see
-  // getPumpStationWetWellInfo) rather than the not-yet-created
+  // getPumpStationWetWellInfoBatch) rather than the not-yet-created
   // pump_station_wet_well table the fields above were originally meant for.
   volumeGallons: number | null // SPUMPSTA_H.WetWellVolume
   elevationAtBottom: number | null // SPUMPSTA_H.ElevationAtBottom
@@ -218,7 +267,7 @@ export interface PumpStationWetWellDimension {
   // regardless of which source won.
   sqlParsedDiameterFt: number | null
   sqlParsedDepthFt: number | null
-  // Wet well capacity as given in the records spreadsheet (src/wetWellDimensions.ts)
+  // Wet well capacity as given in the records spreadsheet (events/wetWellDimensions.ts)
   // — distinct from volumeGallons below (SPUMPSTA.WetWellVolume, a separate
   // GIS field) since the two sources can disagree the same way diameter/depth can.
   capacityGallons: number | null
@@ -245,6 +294,10 @@ export interface PumpStationWetWellInfoResponse {
   configured: boolean
   serial: string
   wetWell: PumpStationWetWellDimension | null
+  // Set only on the renderer's placeholder (static dimensions table only)
+  // while the SQL answer is still in flight — GIS fields are null because
+  // they haven't loaded yet, not because they're missing.
+  pending?: boolean
 }
 
 // Manhole + flow meter GIS attributes — direct SQL Server read of

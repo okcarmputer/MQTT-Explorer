@@ -134,16 +134,40 @@ export default memo((props: Props) => {
 
   // No seconds — at the zoom levels these charts are actually used at,
   // second-level precision isn't meaningful and the extra digits just eat
-  // horizontal space between ticks.
+  // horizontal space between ticks. Year is always included too: when zoomed
+  // out far enough that the axis picks year-boundary ticks (Jan 1 of several
+  // different years), a "1/1 00:00" format with no year made every one of
+  // those ticks print identically — reading as a bug ("it says 1/1 even
+  // though it's not 1/1") when really each tick was a different Jan 1.
   const formatXAxis = useCallback((timestamp: number) => {
     const date = new Date(timestamp)
+    const month = (date.getMonth() + 1).toString()
+    const day = date.getDate().toString()
+    const year = date.getFullYear().toString()
     const hours = date.getHours().toString().padStart(2, '0')
     const minutes = date.getMinutes().toString().padStart(2, '0')
-    return `${hours}:${minutes}`
+    return `${month}/${day}/${year} ${hours}:${minutes}`
   }, [])
 
   const autoXDomain = useCustomXDomain(props)
   const autoYDomain = useCustomYDomain(props)
+  // The real extent of every point this chart has, regardless of the
+  // initial windowed view (props.timeRangeStart) autoXDomain itself renders
+  // — used only to cap how far zoom-out can go (see the wheel handler
+  // below). autoXDomain can't be reused for that: for a fixed-window caller
+  // (FlowMonitorDetail/PumpStationDetail, defaultTimeRange="24h") it IS the
+  // 24h window, not the actual data span, so capping relative to it capped
+  // zoom-out at ~10 days even when a topic had months of real history.
+  const fullDataXDomain = useMemo<[number, number] | undefined>(() => {
+    if (props.data.length === 0) return undefined
+    let min = props.data[0].x
+    let max = props.data[0].x
+    for (const d of props.data) {
+      if (d.x < min) min = d.x
+      if (d.x > max) max = d.x
+    }
+    return [min, max]
+  }, [props.data])
 
   // Drag-to-pan: dragging the plot slides the x-axis window left/right and
   // (via the same gesture's vertical movement) the y-axis window up/down —
@@ -176,6 +200,11 @@ export default memo((props: Props) => {
 
   const xDomain = panDomain ?? autoXDomain
   const yDomain = panYDomain ?? autoYDomain
+  const isZoomedOrPanned = panDomain !== undefined || panYDomain !== undefined
+  const resetZoom = React.useCallback(() => {
+    setPanDomain(undefined)
+    setPanYDomain(undefined)
+  }, [])
 
   const plotWidth = Math.max((width || 300) - CHART_MARGIN.left - CHART_MARGIN.right, 1)
   const plotHeight = Math.max(chartHeight - CHART_MARGIN.top - CHART_MARGIN.bottom, 1)
@@ -278,8 +307,8 @@ export default memo((props: Props) => {
 
       // deltaY > 0 (scroll down) zooms out, < 0 (scroll up) zooms in.
       const zoomFactor = event.deltaY > 0 ? 1.15 : 1 / 1.15
-      const newStart = cursorTime - (cursorTime - start) * zoomFactor
-      const newEnd = cursorTime + (end - cursorTime) * zoomFactor
+      let newStart = cursorTime - (cursorTime - start) * zoomFactor
+      let newEnd = cursorTime + (end - cursorTime) * zoomFactor
       // Only guard against a fully collapsed/inverted window (was previously
       // floored at a 1s span, which stopped the user from zooming in any
       // further) — no minimum otherwise, so zooming in keeps going as far as
@@ -287,12 +316,33 @@ export default memo((props: Props) => {
       if (!(newEnd > newStart)) {
         return
       }
+      // Cap how far out zooming can go: past a couple times the actual
+      // data's own span, every additional scroll just widens a mostly-empty
+      // chart further, eventually reaching a multi-year window with only a
+      // handful of real points in it — confusing on its own, and the axis's
+      // own "nice" tick picker starts landing on year boundaries there,
+      // which used to render as a run of identical-looking "1/1" ticks
+      // before this cap existed. Anchored to fullDataXDomain (every point's
+      // real min/max), NOT autoXDomain (which for a fixed-window caller like
+      // FlowMonitorDetail is just the initial 24h view) — capping against
+      // the windowed domain used to cut zoom-out off well short of a
+      // topic's actual full history. 3x leaves comfortable padding on both
+      // sides of "every point visible at once," which sits at 1x.
+      if (fullDataXDomain) {
+        const dataSpan = Math.max(fullDataXDomain[1] - fullDataXDomain[0], 60000)
+        const maxSpan = dataSpan * 3
+        if (newEnd - newStart > maxSpan) {
+          const center = (newStart + newEnd) / 2
+          newStart = center - maxSpan / 2
+          newEnd = center + maxSpan / 2
+        }
+      }
       setPanDomain([newStart, newEnd])
     }
 
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [panDomain, autoXDomain, plotWidth, panYDomain, autoYDomain, plotHeight])
+  }, [panDomain, autoXDomain, fullDataXDomain, plotWidth, panYDomain, autoYDomain, plotHeight])
 
   const { data } = props
   const hasData = data.length > 0
@@ -350,10 +400,7 @@ export default memo((props: Props) => {
         <div
           ref={chartContainerRef}
           onMouseDown={e => onPanStart(e.clientX, e.clientY)}
-          onDoubleClick={() => {
-            setPanDomain(undefined)
-            setPanYDomain(undefined)
-          }}
+          onDoubleClick={resetZoom}
           title="Drag to pan (both axes), scroll to zoom time, shift+scroll to zoom value, double-click to reset"
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
@@ -365,7 +412,12 @@ export default memo((props: Props) => {
             yScale={{ type: 'linear', domain: hasData ? yDomain : dummyDomain }}
             onPointerOut={onMouseLeave}
           >
-            <Grid rows columns={false} stroke={gridColor} strokeOpacity={0.3} />
+            {/* Rows AND columns (previously rows-only) — a grid with no
+                vertical lines read as too sparse/washed-out to actually help
+                judge where a point falls on the time axis, especially at
+                the darker end of the dashboard's palette. Bumped opacity to
+                match. */}
+            <Grid rows columns stroke={gridColor} strokeOpacity={0.5} />
             <Axis
               orientation="left"
               numTicks={5}
@@ -440,16 +492,18 @@ export default memo((props: Props) => {
                   // plotted from) used to be visually swallowed by the line
                   // underneath it — same color, barely poking out past the
                   // stroke width. A contrasting ring makes every point read
-                  // as a distinct dot on top of the line rather than just a
-                  // thicker patch of it.
+                  // as a distinct dot rather than just a thicker patch of
+                  // line — now drawn always (not only when the trend line is
+                  // on), since "where exactly are the points" was hard to
+                  // tell even with no line drawn at all.
                   return (
                     <circle
                       cx={glyphProps.x}
                       cy={glyphProps.y}
-                      r={showTrendLine ? 3.5 : 3}
+                      r={showTrendLine ? 4 : 3.5}
                       fill={pointColor}
-                      stroke={showTrendLine ? props.pointRingColor ?? theme.palette.background.paper : 'none'}
-                      strokeWidth={showTrendLine ? 1.5 : 0}
+                      stroke={props.pointRingColor ?? theme.palette.background.paper}
+                      strokeWidth={1.5}
                     />
                   )
                 }}
@@ -457,6 +511,32 @@ export default memo((props: Props) => {
             </g>
           </XYChart>
         </div>
+        {/* Only shown once the user has actually zoomed/panned away from the
+            auto-fit view — otherwise it'd be a button that does nothing,
+            permanently cluttering every chart. Same reset double-click
+            already does, just discoverable without knowing that gesture. */}
+        {isZoomedOrPanned && (
+          <button
+            type="button"
+            onClick={resetZoom}
+            title="Reset zoom/pan back to the default view"
+            style={{
+              position: 'absolute',
+              top: 2,
+              left: 4,
+              fontSize: 10,
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: `1px solid ${axisColor}`,
+              background: 'transparent',
+              color: axisColor,
+              opacity: 0.85,
+              cursor: 'pointer',
+            }}
+          >
+            Reset zoom
+          </button>
+        )}
         <label
           style={{
             position: 'absolute',

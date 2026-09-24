@@ -55,6 +55,15 @@ export const SQL_POLL_INTERVAL_MS = 5 * 60 * 1000
 // and cuts needless load on the SDE database.
 export const SQL_GIS_POLL_INTERVAL_MS = 24 * 60 * 60 * 1000
 
+// Base URL of the Anomaly_Detection repo's Hach live-charts server
+// (flow_monitors/live_dashboard/hach_live_dashboard.py, started with
+// run_live_dashboard.ps1). The flow monitor "Live Charts" view embeds its
+// pages in an iframe — this app never queries hach_site_measurements itself.
+// Override by setting HACH_LIVE_URL in the environment before building (it's
+// baked in by webpack's DefinePlugin) and, for browser/server mode, before
+// starting the server too (server.ts adds the same origin to its CSP).
+export const HACH_LIVE_URL = (process.env.HACH_LIVE_URL || 'http://sv-dg-p01-flow:8050').replace(/\/+$/, '')
+
 export const dashboardConfig = {
   flowMonitors: {
     // Confirmed against fm_mqtt.py: publishes to flow_monitors/prod/{site_number}/{channel_type},
@@ -139,6 +148,19 @@ export const flowChannels: FlowChannelConfig[] = [
   { id: '11', key: 'velocity', label: 'Velocity', unit: 'fps' },
   { id: '15', key: 'flow', label: 'Flow', unit: 'gpm' },
 ]
+
+// diurnal_detector.py's own conversion (flow_monitors/detection/diurnal_detector.py:108,556)
+// — Flow_Monitor_Diurnal_Anomalies (AvgDiurnal/NormDiurnal/MeasurementValue)
+// and the diurnal MQTT payload's avg_diurnal/norm_diurnal/measurement_value
+// are all in MGD, while the live Flow channel reading (hach_site_measurements,
+// flow_monitors/{site}/15) is GPM. Mirrored here so the dashboard compares
+// like units against the diurnal baselines instead of plotting/showing a raw
+// GPM number next to an MGD one.
+export const GPM_TO_MGD = 1440 / 1_000_000
+
+export function gpmToMgd(gpm: number): number {
+  return gpm * GPM_TO_MGD
+}
 
 export function severityFromPayload(payload: string | undefined | null): Severity {
   if (!payload) {

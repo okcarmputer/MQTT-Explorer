@@ -17,6 +17,10 @@ interface Props {
   // Optional trailing content (status chips, view toggles) pinned to the
   // header's right edge, vertically centered against the title block.
   actions?: React.ReactNode
+  // Optional KPI strip rendered below the identifier, still inside the fixed
+  // title area — see widgets/FlowKpiRow.tsx. Kept out of the draggable
+  // PanelGrid below deliberately, so it can't be dragged/resized/hidden.
+  kpiRow?: React.ReactNode
 }
 
 /**
@@ -32,7 +36,7 @@ interface Props {
  * is now sized to its own content, and the title/identifier read as one
  * left-aligned hierarchy.
  */
-export default function DeviceHeader({ titleParts, identifier, onBack, actions }: Props) {
+export default function DeviceHeader({ titleParts, identifier, onBack, actions, kpiRow }: Props) {
   const title = titleParts
     .map(part => (part === undefined || part === null ? '' : String(part).trim()))
     .filter(Boolean)
@@ -40,14 +44,23 @@ export default function DeviceHeader({ titleParts, identifier, onBack, actions }
 
   return (
     <div className="cmom-device-header">
+      {/* Back button + device name/location share one row now — the name
+          shrinks (via container-query font sizing, see dashboard.css)
+          rather than wrapping under the button or getting clipped. */}
       <div className="cmom-device-header__bar">
         <button type="button" className="cmom-back-button" onClick={onBack}>
           <span aria-hidden="true">&larr;</span> Back
         </button>
+        {title ? <h1 className="cmom-device-header__title">{title}</h1> : null}
         {actions ? <div className="cmom-device-header__actions">{actions}</div> : null}
       </div>
-      {title ? <h1 className="cmom-device-header__title">{title}</h1> : null}
-      <div className="cmom-device-header__identifier">{identifier}</div>
+      {/* Identifier (serial/site number) + the KPI strip share the second
+          row — chips are sized to their own content (see .cmom-kpi-chip),
+          never clipped. */}
+      <div className="cmom-device-header__titlerow">
+        <div className="cmom-device-header__identifier">{identifier}</div>
+        {kpiRow}
+      </div>
     </div>
   )
 }

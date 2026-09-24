@@ -1,7 +1,7 @@
 // Authoritative wet well shape/size table, keyed by OPC serial number —
 // supplied directly by facilities staff (source: internal GIS/OPC dimension
 // notes), since SPUMPSTA_H's freeform Comments field only carries dimensions
-// for a handful of stations and getPumpStationWetWellInfo's regex parse
+// for a handful of stations and getPumpStationWetWellInfoBatch's regex parse
 // (parseDiameterAndDepthFt in sqlReporting.ts) misses the rest.
 //
 // Source values were given as "D x L x W" with inches assumed unless a unit
@@ -11,8 +11,14 @@
 // pre-converted to feet. Serials with no usable dimensions in the source
 // list (blank/NULL rows, bare numbers with no dimension markers — ambiguous,
 // possibly a volume rather than a size — or only a single dimension given)
-// are intentionally omitted; getPumpStationWetWellInfo treats a missing
+// are intentionally omitted; getPumpStationWetWellInfoBatch treats a missing
 // entry as "no dimensions known yet".
+//
+// Lives in events/ (shared by backend and renderer) so the dashboard can
+// draw dimensions immediately from this table instead of waiting on the
+// SQL round trips that fill in the GIS/OPC fields.
+import { PumpStationWetWellDimension } from './EventsV2'
+
 export type WetWellShape = 'cylinder' | 'rectangular'
 
 export interface WetWellDimensionEntry {
@@ -148,4 +154,53 @@ export function getWetWellDimensions(serial: string | null | undefined): WetWell
     return null
   }
   return BY_SERIAL.get(normalizeSerial(serial)) ?? null
+}
+
+// Live level/identity fields from OPCAudit_Live, when that lookup succeeded.
+export interface OpcStationFields {
+  currentLevelFt: number | null
+  levelLastSeenAt: string | null
+  opcSerialNumber: string | null
+  opcStationName: string | null
+}
+
+// Wet well record from this table alone (plus OPC fields when known) — what
+// the renderer shows before SQL answers, and what the backend returns
+// whenever SPUMPSTA can't be reached, so a SQL outage never hides dimensions
+// this table already knows. Null when the serial has no entry.
+export function staticWetWellRecord(serial: string, opc?: OpcStationFields | null): PumpStationWetWellDimension | null {
+  const dims = getWetWellDimensions(serial)
+  if (!dims) {
+    return null
+  }
+  return {
+    shape: dims.shape,
+    dimensionName: null,
+    dimensionValue: null,
+    dimensionUnits: null,
+    volumeGallons: null,
+    elevationAtBottom: null,
+    material: null,
+    comments: null,
+    diameterFt: dims.diameterFt,
+    depthFt: dims.depthFt,
+    lengthFt: dims.lengthFt,
+    widthFt: dims.widthFt,
+    dimensionsSource: 'spreadsheet',
+    sqlParsedDiameterFt: null,
+    sqlParsedDepthFt: null,
+    capacityGallons: dims.capacityGallons ?? null,
+    currentLevelFt: opc?.currentLevelFt ?? null,
+    levelLastSeenAt: opc?.levelLastSeenAt ?? null,
+    facilityId: null,
+    facilityName: null,
+    stationType: null,
+    basin: null,
+    subBasin: null,
+    dryWellMaterial: null,
+    stationPumpCount: null,
+    stationDesignCapacity: null,
+    opcSerialNumber: opc?.opcSerialNumber ?? null,
+    opcStationName: opc?.opcStationName ?? null,
+  }
 }

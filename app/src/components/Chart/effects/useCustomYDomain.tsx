@@ -39,7 +39,13 @@ function domainForData(data: Array<Point>): [number, number] {
     return [0, 1]
   }
   if (min === max) {
-    return [min - 0.5 * min, min + 0.5 * min]
+    // min * 0.5 degenerates to a zero-height [0, 0] domain whenever every
+    // point sits exactly at 0 (a flat, idle analog input is a common real
+    // case, not just synthetic data) — the chart then has no vertical span
+    // to draw into at all. A small absolute pad (proportional otherwise)
+    // always leaves a real domain.
+    const pad = Math.abs(min) * 0.1 || 1
+    return [min - pad, min + pad]
   }
   // Pad a bit past the exact min/max so a boundary data point isn't drawn
   // flush against the axis edge — without this, the line's stroke width and

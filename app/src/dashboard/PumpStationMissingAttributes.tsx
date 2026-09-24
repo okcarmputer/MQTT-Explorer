@@ -33,6 +33,9 @@ function PumpStationMissingRow({ serial, node, filters }: { serial: string; node
 
   const missing = computeMissingPumpStationAttributes(node, summary, wetWell, currentLevelFt)
 
+  // Still loading from SQL — its GIS fields are empty because they haven't
+  // arrived yet, not because they're missing.
+  if (wetWellInfo?.pending) return null
   if (missing.length === 0) return null
   if (filters.attributeFilter !== 'Any' && !missing.includes(filters.attributeFilter)) return null
   if (filters.textFilter && !serial.toLowerCase().includes(filters.textFilter.toLowerCase())) return null

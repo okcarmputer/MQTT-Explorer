@@ -44,6 +44,7 @@ export default {
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
       'process.env.BROWSER_MODE': JSON.stringify('true'),
+      'process.env.HACH_LIVE_URL': JSON.stringify(process.env.HACH_LIVE_URL || ''),
     }),
     // Replace events/index with browser-specific version that excludes IPC EventBus
     new webpack.NormalModuleReplacementPlugin(/^\.\.\/\.\.\/\.\.\/events$/, resource => {
