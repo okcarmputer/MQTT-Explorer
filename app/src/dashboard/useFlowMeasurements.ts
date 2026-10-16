@@ -19,9 +19,40 @@ export interface FlowMeasurement {
   // own lastUpdate (which can lag behind if it's driven by a different
   // child, e.g. status/site_info).
   lastUpdate?: number
+  // Site fields fm_mqtt.py attaches to every measurement payload (since
+  // 2026-10-01): SiteName/Latitude/Longitude from the Hach site record,
+  // Basin from SQL hach_flow_monitors. Taken from the first channel that
+  // carries each one; null in the payload reads as absent.
+  site: FlowMeasurementSite
 }
 
-function readChannel(node: q.TreeNode<any> | undefined): { value: string; received?: number } | undefined {
+export interface FlowMeasurementSite {
+  siteName?: string
+  latitude?: number
+  longitude?: number
+  basin?: string
+}
+
+interface ChannelPayload {
+  value: string
+  received?: number
+  site: FlowMeasurementSite
+}
+
+function text(value: unknown): string | undefined {
+  const trimmed = value === null || value === undefined ? '' : String(value).trim()
+  return trimmed || undefined
+}
+
+function coordinate(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined
+  }
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function readChannel(node: q.TreeNode<any> | undefined): ChannelPayload | undefined {
   const message = node?.message
   const payload = message?.payload?.toUnicodeString()
   if (!message || !payload) {
@@ -31,13 +62,19 @@ function readChannel(node: q.TreeNode<any> | undefined): { value: string; receiv
   const received = message.received ? message.received.getTime() : undefined
   try {
     const json = JSON.parse(payload)
-    if (json.Value !== undefined) {
-      return { value: String(json.Value), received }
+    if (json && json.Value !== undefined) {
+      const site: FlowMeasurementSite = {
+        siteName: text(json.SiteName),
+        latitude: coordinate(json.Latitude),
+        longitude: coordinate(json.Longitude),
+        basin: text(json.Basin),
+      }
+      return { value: String(json.Value), received, site }
     }
   } catch {
     // fall through to raw payload
   }
-  return { value: payload, received }
+  return { value: payload, received, site: {} }
 }
 
 /**
@@ -70,11 +107,16 @@ export function useFlowMeasurements(devices: ChildTopic[]): Record<string, FlowM
   devices.forEach(d => {
     const readings: FlowMeasurement['readings'] = {}
     let lastUpdate: number | undefined
+    const site: FlowMeasurementSite = {}
 
     flowChannels.forEach(c => {
       const channelNode = d.node.edges[c.id]?.target
       const reading = readChannel(channelNode)
       if (reading) {
+        site.siteName ??= reading.site.siteName
+        site.latitude ??= reading.site.latitude
+        site.longitude ??= reading.site.longitude
+        site.basin ??= reading.site.basin
         readings[c.key] = { value: reading.value, unit: c.unit, label: c.label }
         if (reading.received !== undefined && (lastUpdate === undefined || reading.received > lastUpdate)) {
           lastUpdate = reading.received
@@ -82,7 +124,7 @@ export function useFlowMeasurements(devices: ChildTopic[]): Record<string, FlowM
       }
     })
 
-    out[d.key] = { siteKey: d.key, readings, lastUpdate }
+    out[d.key] = { siteKey: d.key, readings, lastUpdate, site }
   })
 
   return out

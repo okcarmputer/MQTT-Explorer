@@ -10,7 +10,7 @@ const HEALTH_TIMEOUT_MS = 5 * 1000
 type Status = 'checking' | 'up' | 'down'
 
 interface Props {
-  // Raw Hach site number (the flow_monitors/prod/{site_number} segment).
+  // Raw Hach site number (the flow_monitors/{site_number} segment).
   // Omitted = the server's own all-sites view, with its site list.
   siteNumber?: string
   // Starting range in days (1/3/7/365). The embedded page's own range

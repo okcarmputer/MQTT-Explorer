@@ -17,7 +17,7 @@ import PipeGauge from './widgets/PipeGauge'
 import ManholeGauge from './widgets/ManholeGauge'
 import ManholeInfoCard from './widgets/ManholeInfoCard'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
-import { useFitRowHeight } from './widgets/useFitRowHeight'
+import { useAvailableHeight } from './widgets/useAvailableHeight'
 import { extractPayloadTimestamp } from '../helper/extractPayloadTimestamp'
 import { SegmentedControl } from './widgets/Controls'
 import HachLiveCharts from './HachLiveCharts'
@@ -104,9 +104,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   // "location" rather than assuming exact casing — same loose-match
   // approach the Flow Monitors card grid's subtitle already uses.
   const siteInfoKeys = Object.keys(siteInfo)
-  const siteNameKey = siteInfoKeys.find(k => k.toLowerCase().includes('name'))
   const siteLocationKey = siteInfoKeys.find(k => k.toLowerCase().includes('location'))
-  const siteName = siteNameKey ? siteInfo[siteNameKey] : undefined
   const siteLocation = siteLocationKey ? siteInfo[siteLocationKey] : undefined
 
   // The manhole/flow-meter table (published by the anomaly-detection repo to
@@ -114,12 +112,13 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
   // which lines up with site_info's own "NAME" field (e.g. "FM250-16") —
   // NOT this site's MQTT key/deviceKey (e.g. "15223"), an internal ID the
   // table has no concept of. "NAME" specifically, not the same loose
-  // "includes('name')" match siteNameKey above uses, since some sites also
-  // publish a "CustomerName" field that would otherwise win that match
-  // first. deviceKey is still passed as a second candidate in case a site's
-  // key happens to already be in the table's site-number format.
+  // "includes('name')" match, since sites also publish "customer_name"
+  // ("ReWa"), which comes first and would otherwise win. deviceKey is still
+  // passed as a second candidate in case a site's key happens to already be
+  // in the table's site-number format.
   const flowMeterNameKey = siteInfoKeys.find(k => k.toLowerCase() === 'name')
-  const manholeInfo = useManholeInfo([flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined, deviceKey])
+  const flowMeterName = flowMeterNameKey ? siteInfo[flowMeterNameKey] : undefined
+  const manholeInfo = useManholeInfo([flowMeterName, deviceKey])
 
   // diurnal_detector.py's hour-of-day engine — a separate detector/topic tree
   // from the monthly flow_monitors/{site}/{channel}/anomaly one already read
@@ -204,16 +203,14 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
 
   // Row 1: Pipe | Site Attributes | Manhole Info | Diurnal comparison — four
   // equal-width columns, all sharing ROW1_H. Row 2 is one equal-sized card
-  // per Level/Velocity/Flow channel, three equal columns. Hoisted above the
-  // panels IIFE below (rather than declared inside it) so totalRows can feed
-  // useFitRowHeight — the two need to agree on the same row math.
+  // per Level/Velocity/Flow channel, three equal columns. These are relative
+  // heights: PanelGrid scales rows so the whole layout fits the screen.
   const ROW1_H = 17
   const ROW2_H = 16
   const ROW3_H = 12
   const channelOrder = ['level', 'flow', 'velocity']
   const orderedChannels = [...channels].sort((a, b) => channelOrder.indexOf(a.key) - channelOrder.indexOf(b.key))
   const chartRows = Math.max(1, Math.ceil(orderedChannels.length / 3))
-  const totalRows = ROW1_H + ROW2_H * chartRows + ROW3_H
 
   // Current value + both detectors' severities, per channel — read the same
   // way TrendPanel reads its own node (payload.Value / sibling .../anomaly
@@ -281,18 +278,19 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
     }
     return issues
   })
-  // Scales PanelGrid's rowHeight so this page's default layout fills
-  // whatever vertical space is actually available instead of a fixed
-  // 32px/row layout that may run taller than the viewport — see
-  // useFitRowHeight's own comment. `fitRef` goes on the flex:1 wrapper below
-  // (not the outer padded div), so its measured height is the real
-  // post-header, post-padding budget.
-  const { ref: fitRef, rowHeight } = useFitRowHeight(totalRows, 32)
+  // PanelGrid sizes its rows so the cards fill whatever vertical space is
+  // actually left — see useAvailableHeight. `fitRef` goes on the flex:1
+  // wrapper below (not the outer padded div), so its measured height is the
+  // real post-header, post-padding budget. The Live Charts view is an iframe
+  // with its own layout and isn't affected.
+  const { ref: fitRef, height: fitHeight } = useAvailableHeight()
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <DeviceHeader
-        titleParts={[siteLocation, siteName]}
+        // Flow monitor name first, then site_info's "location" — which for
+        // most sites is the manhole ID (e.g. "97 — 700A-MH-398").
+        titleParts={[flowMeterName, siteLocation]}
         identifier={deviceKey}
         onBack={onBack}
         kpiRow={<FlowKpiRow metrics={kpiMetrics} issues={siteHealthIssues} />}
@@ -518,7 +516,7 @@ export default function FlowMonitorDetail({ deviceKey, deviceNode, tree, onBack 
         // Health KPI summary lives in DeviceHeader's fixed kpiRow slot
         // instead of PanelGrid — it's meant to always be visible in the same
         // spot, not draggable/resizable/hideable like everything else here.
-        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v3" panels={panels} rowHeight={rowHeight} />
+        return <PanelGrid storageKey="cmom-layout-flow-monitor-detail-v3" panels={panels} fitHeight={fitHeight} />
       })()}
       </div>
     </div>

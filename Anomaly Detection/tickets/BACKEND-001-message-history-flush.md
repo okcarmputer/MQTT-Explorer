@@ -1,8 +1,46 @@
 # BACKEND-001 — MessageHistoryStore flush fails with RangeError
 
-**Status:** Open — observed 2026-09-04, not started
+**Status:** Fixed 2026-09-24 in code — pending a long run against the live broker
+(last acceptance criterion)
 **Area:** Backend persistence. **Not** dashboard/UI. Pre-existing; unrelated to the
 EXPLORER-* work.
+
+## Resolution (2026-09-24)
+
+**Correction to the analysis below:** the flush did succeed for a while. The
+earlier scan only searched the repo; the Electron store lives in
+`%APPDATA%\MQTT-Explorer\message-history.json`, which had reached **529 MB**
+(31,791 topics, 1.3M points, Aug 20 13:29 – Aug 25 14:04). Every flush after
+Aug 25 14:04 failed. On each launch the app loaded that frozen snapshot, so charts
+showed a dense Aug 20–25 block and then only the current session's points,
+which were lost on quit.
+
+Size came from recording *every* topic (`$SYS`, DigitalInputs, PumpRuntimes,
+UnitStatus, …) with full ~330-byte OPC-UA payloads. The 3,000-points-per-topic
+cap bounded nothing in aggregate across 31k topics.
+
+`MessageHistoryStore` was rewritten:
+
+- **Only charted topics** are recorded: `…/AnalogInputs/AnalogInput<n>/ScaledValue`
+  and `flow_monitors/[prod/]<site>/<channel>`, the only topics `TrendPanel`
+  hydrates.
+- **Payloads compacted** to the value field plus the one timestamp field
+  `extractPayloadTimestamp` would pick (~60 bytes instead of ~330).
+- **Identical re-deliveries skipped** (retained messages on reconnect, flow
+  monitors re-publishing the same hourly reading).
+- **Append-only daily files** `message-history/YYYY-MM-DD.ndjson`; each flush
+  appends only new lines. **Retention: 30 days**, and expired files are deleted
+  whole. At most 2,000 points per topic are held in memory (matches
+  `TREND_HISTORY_ITEMS`).
+- **Failure surfaced:** unwritten lines are retried (capped at 200k), and the error
+  is returned on `getTopicHistory` as `storageError`. `TrendPanel` shows "Chart
+  history isn't being saved".
+- The 529 MB file was deleted. Its data was all older than the retention window.
+- Tests: `backend/src/Model/spec/MessageHistoryStore.spec.ts`.
+
+Long-term history of record belongs in SQL, not this local cache.
+
+## Original analysis (2026-09-04)
 
 ## Symptom
 

@@ -10,7 +10,7 @@
  * between specific cards, so they have to be stated, not inferred.
  *
  * Grid is react-grid-layout's default 12 columns. `y`/`h` are in grid rows,
- * whose pixel height PanelGrid scales via useFitRowHeight.
+ * whose pixel height PanelGrid scales to fit the screen (its fitHeight prop).
  */
 
 export type PanelId =
@@ -64,8 +64,8 @@ export interface PumpStationLayout {
   // Position for the placeholder card shown when there are no analog inputs.
   analogPlaceholder?: Box
   fixed: Record<PanelId, Box>
-  // Total grid rows the layout occupies, so useFitRowHeight can scale rows to
-  // the available viewport height.
+  // Total grid rows the default layout occupies. PanelGrid measures the
+  // live layout itself when fitting, so this is informational.
   totalRows: number
 }
 

@@ -19,7 +19,7 @@ function normalize(v: string | null | undefined): string {
  * this is asset-management data, not live telemetry), same "undefined while
  * loading/unavailable, not an error" contract as the other SQL-backed hooks.
  */
-function useManholeRecords(): ManholeRecord[] | undefined {
+export function useManholeRecords(): ManholeRecord[] | undefined {
   const [records, setRecords] = React.useState<ManholeRecord[] | undefined>(undefined)
 
   React.useEffect(() => {
@@ -65,19 +65,26 @@ function useManholeRecords(): ManholeRecord[] | undefined {
  * to the next candidate — every (candidate, field) combination is checked
  * before giving up, rather than surfacing nothing at all.
  */
+export function findManholeRecord(
+  records: ManholeRecord[],
+  candidateKeys: (string | undefined)[]
+): ManholeRecord | undefined {
+  const candidates = candidateKeys.map(normalize).filter(Boolean)
+  return candidates.reduce<ManholeRecord | undefined>(
+    (found, key) => found
+      ?? records.find((r) => normalize(r.flowMeterId) === key)
+      ?? records.find((r) => normalize(r.installCurrentMhId) === key)
+      ?? records.find((r) => normalize(r.manholeFacilityId) === key),
+    undefined,
+  )
+}
+
 export function useManholeInfo(candidateKeys: (string | undefined)[]): ManholeRecord | undefined {
   const records = useManholeRecords()
   const cacheKey = candidateKeys.join(' ')
   return React.useMemo(() => {
     if (!records) return undefined
-    const candidates = candidateKeys.map(normalize).filter(Boolean)
-    return candidates.reduce<ManholeRecord | undefined>(
-      (found, key) => found
-        ?? records.find((r) => normalize(r.flowMeterId) === key)
-        ?? records.find((r) => normalize(r.installCurrentMhId) === key)
-        ?? records.find((r) => normalize(r.manholeFacilityId) === key),
-      undefined,
-    )
+    return findManholeRecord(records, candidateKeys)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey, records])
 }

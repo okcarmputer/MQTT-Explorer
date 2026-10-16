@@ -39,7 +39,7 @@ import {
 // shell to inherit them from, so without this every SQL-backed RPC silently
 // reports "not configured" even when SQL Server itself is reachable and the
 // query is correct. Loads a plain KEY=value .env file from the same
-// userData folder settings.json/message-history.json already live in (see
+// userData folder settings.json and message-history/ already live in (see
 // the ConfigStorage/MessageHistoryStore setup below) — user-writable and
 // stable across installs, unlike trying to set Windows system/user env vars
 // and relying on a relaunch to pick them up. Silently does nothing if the
@@ -172,7 +172,7 @@ app.whenReady().then(() => {
 autoUpdater.logger = log
 log.info('App starting...')
 
-const messageHistoryStore = new MessageHistoryStore(path.join(app.getPath('userData'), 'message-history.json'))
+const messageHistoryStore = new MessageHistoryStore(path.join(app.getPath('userData'), 'message-history'))
 const connectionManager = new ConnectionManager(backendEvents, messageHistoryStore)
 connectionManager.manageConnections()
 

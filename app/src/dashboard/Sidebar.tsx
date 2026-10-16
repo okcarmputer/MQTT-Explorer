@@ -4,6 +4,7 @@ import WaterIcon from '@mui/icons-material/Water'
 import SettingsInputComponentIcon from '@mui/icons-material/SettingsInputComponent'
 import WarningIcon from '@mui/icons-material/Warning'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import MapIcon from '@mui/icons-material/Map'
 import { useMqttStore } from './store/mqttStore'
 
 export interface NavItem {
@@ -16,6 +17,7 @@ export const navItems: NavItem[] = [
   { label: 'Flow Monitors', icon: <WaterIcon /> },
   { label: 'Pump Stations', icon: <SettingsInputComponentIcon /> },
   { label: 'Anomalies', icon: <WarningIcon /> },
+  { label: 'Map', icon: <MapIcon /> },
   { label: 'Explorer', icon: <AccountTreeIcon /> },
 ]
 

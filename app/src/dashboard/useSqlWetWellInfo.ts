@@ -115,3 +115,41 @@ export function useSqlWetWellInfo(serial: string | undefined): PumpStationWetWel
 
   return data
 }
+
+/**
+ * useSqlWetWellInfo for a whole list of serials at once (e.g. every station
+ * on the map), sharing the same cache and batching. Keyed by serial; a serial
+ * whose SQL record hasn't arrived yet is absent.
+ */
+export function useSqlWetWellInfoMany(serials: string[]): Record<string, PumpStationWetWellInfoResponse> {
+  const [, setTick] = React.useState(0)
+  const serialsKey = serials.join('\u0000')
+
+  React.useEffect(() => {
+    const rerender = () => setTick(t => t + 1)
+    serials.forEach(serial => {
+      let serialListeners = listeners.get(serial)
+      if (!serialListeners) {
+        serialListeners = new Set()
+        listeners.set(serial, serialListeners)
+      }
+      serialListeners.add(rerender)
+      request(serial)
+    })
+    const interval = setInterval(() => serials.forEach(request), SQL_GIS_POLL_INTERVAL_MS)
+    return () => {
+      clearInterval(interval)
+      serials.forEach(serial => listeners.get(serial)?.delete(rerender))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serialsKey])
+
+  const out: Record<string, PumpStationWetWellInfoResponse> = {}
+  serials.forEach(serial => {
+    const cached = cache.get(serial)
+    if (cached) {
+      out[serial] = cached.response
+    }
+  })
+  return out
+}

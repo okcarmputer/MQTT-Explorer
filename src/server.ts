@@ -120,7 +120,7 @@ async function startServer() {
     'frame-src': ["'self'", hachLiveOrigin],
     'child-src': ["'self'", hachLiveOrigin],
     // Allow data URIs for images
-    'img-src': ["'self'", 'data:', 'blob:'],
+    'img-src': ["'self'", 'data:', 'blob:', 'https://tile.openstreetmap.org'], // + Map tab tiles (mapConfig.tileUrl)
     // Only add upgrade-insecure-requests if explicitly enabled via env var
     ...(enableUpgradeInsecure && { 'upgrade-insecure-requests': [] }),
   }
@@ -277,7 +277,7 @@ async function startServer() {
   const backendRpc = new Rpc(backendEvents)
 
   // Initialize connection manager
-  const messageHistoryStore = new MessageHistoryStore(path.join(process.cwd(), 'data', 'message-history.json'))
+  const messageHistoryStore = new MessageHistoryStore(path.join(process.cwd(), 'data', 'message-history'))
   const connectionManager = new ConnectionManager(backendEvents, messageHistoryStore)
   connectionManager.manageConnections()
   messageHistoryStore.init(backendRpc).catch(error => console.error('[MessageHistoryStore] init failed:', error))

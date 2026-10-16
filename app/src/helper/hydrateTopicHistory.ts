@@ -40,15 +40,21 @@ function toMessage(point: TopicHistoryPoint): q.Message {
 // merged RingBuffer) rather than the caller's own buffer/clone, so every
 // reader of node.messageHistory — not just whichever component happened to
 // trigger the fetch — benefits. Runs at most once per node instance.
-export async function hydrateMessageHistory(node: q.TreeNode<any>, topic: string | undefined): Promise<boolean> {
+//
+// `storageError` is the backend's last failed save to disk, if any — passed
+// through so the chart can say its new points won't survive a restart.
+export async function hydrateMessageHistory(
+  node: q.TreeNode<any>,
+  topic: string | undefined
+): Promise<{ added: boolean; storageError?: string }> {
   if (!topic || hydratedNodes.has(node)) {
-    return false
+    return { added: false }
   }
   hydratedNodes.add(node)
 
   const connectionId = (store.getState() as AppState).connectionManager.selected
   if (!connectionId) {
-    return false
+    return { added: false }
   }
 
   try {
@@ -57,8 +63,9 @@ export async function hydrateMessageHistory(node: q.TreeNode<any>, topic: string
       { connectionId, topic },
       RPC_TIMEOUT_MS
     )
+    const storageError = response?.storageError
     if (!response?.points?.length) {
-      return false
+      return { added: false, storageError }
     }
 
     const persisted = response.points.slice().sort((a, b) => a.t - b.t)
@@ -66,7 +73,7 @@ export async function hydrateMessageHistory(node: q.TreeNode<any>, topic: string
     const earliestExistingTime = existing.length > 0 ? existing[0].received.getTime() : Infinity
     const toPrepend = persisted.filter(point => point.t < earliestExistingTime)
     if (toPrepend.length === 0) {
-      return false
+      return { added: false, storageError }
     }
 
     const merged = new q.RingBuffer<q.Message>(node.messageHistory.capacity, node.messageHistory.maxItems)
@@ -74,8 +81,8 @@ export async function hydrateMessageHistory(node: q.TreeNode<any>, topic: string
     existing.forEach(message => merged.add(message))
     node.messageHistory = merged
 
-    return true
+    return { added: true, storageError }
   } catch {
-    return false
+    return { added: false }
   }
 }

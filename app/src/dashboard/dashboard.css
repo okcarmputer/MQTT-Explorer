@@ -3,13 +3,13 @@
  * Pump Stations, Anomalies, and their drill-down/detail views), scoped
  * under .cmom-dashboard so they don't leak into unrelated parts of the app.
  * Explorer (the original MQTT-Explorer tree tab) now opts into this scope
- * too (see ContentView.tsx) so it reads as part of the same app — only the
+ * too (see ContentView.tsx) so it reads as part of the same app â€” only the
  * outer panel chrome around it is styled; the tree/chart/sidebar internals
  * themselves are untouched.
  *
  * Visual language ported from the reference Qt/QML "MQTT Device Dashboard"
  * (dark terminal aesthetic: near-black surfaces, monospace labels, green
- * accent, translucent status badges). Only the look moved — severity colors
+ * accent, translucent status badges). Only the look moved â€” severity colors
  * still mirror config.ts's severityColors, and no data logic lives here.
  */
 
@@ -34,7 +34,7 @@
   --cmom-border-strong: #3a424c;
   --cmom-panel-bg: #151a21;
   --cmom-card-bg: #151a21;
-  /* Widget look: shadow does the separating, not a hard border — border is
+  /* Widget look: shadow does the separating, not a hard border â€” border is
      a near-invisible hairline just to keep edges crisp on very flat colors. */
   --cmom-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.22);
   --cmom-card-shadow-hover: 0 2px 4px rgba(0, 0, 0, 0.32), 0 10px 26px rgba(0, 0, 0, 0.32);
@@ -64,7 +64,7 @@
 /* Dark is the default palette. A light set of the same token names is defined
    at the end of this file under :root[data-cmom-theme='light'], driven by the
    app's Dark Mode setting (see index.tsx). OS color-scheme preference is still
-   not consulted — the in-app setting is the only input. */
+   not consulted â€” the in-app setting is the only input. */
 
 .cmom-dashboard h2 {
   font-family: var(--cmom-font-mono);
@@ -74,7 +74,7 @@
 }
 
 /* Section labels ("Unit Status", "Digital Inputs", ...) read as dashboard
-   headers, not document headings — small, muted, spaced caps, monospace. */
+   headers, not document headings â€” small, muted, spaced caps, monospace. */
 .cmom-dashboard h3 {
   font-family: var(--cmom-font-mono);
   font-size: 11px;
@@ -88,13 +88,13 @@
 
 .cmom-dashboard .cmom-card {
   background: var(--cmom-surface);
-  /* Hairline, not a defined border — the card reads as a widget lifted off
+  /* Hairline, not a defined border â€” the card reads as a widget lifted off
      the page by its shadow, not a boxed-in rectangle. */
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--cmom-radius-md);
   box-shadow: var(--cmom-card-shadow);
   padding: var(--cmom-space-4);
-  /* Never let a long value/label push the card wider than its grid cell —
+  /* Never let a long value/label push the card wider than its grid cell â€”
      text wraps and shrinks with the card instead of spilling out of it. */
   min-width: 0;
   max-width: 100%;
@@ -133,7 +133,7 @@
  * wrap across multiple lines inside an oversized card), each card here
  * only takes the width its own content actually needs, and rows wrap
  * normally. Used for Unit Status / Power & Temperature / Pump Runtimes /
- * the pipe & wet well gauges — anywhere a card's value is one short line
+ * the pipe & wet well gauges â€” anywhere a card's value is one short line
  * that shouldn't be stretched or wrapped.
  */
 .cmom-dashboard .cmom-card-row {
@@ -144,10 +144,10 @@
 }
 
 .cmom-dashboard .cmom-card-row > .cmom-card {
-  /* flex-shrink: 0 — never squeezed narrower than its content (that's what
+  /* flex-shrink: 0 â€” never squeezed narrower than its content (that's what
      was forcing values to wrap in the old equal-width grid); rows wrap
      instead of cards shrinking. width: max-content (not auto) forces real
-     intrinsic content-based sizing — plain `auto` left the card's measured
+     intrinsic content-based sizing â€” plain `auto` left the card's measured
      width ambiguous inside a flex-wrap row combined with container-type:
      inline-size below, which was collapsing to near-zero and forcing
      .cmom-value's text to wrap one character per line despite nowrap. */
@@ -155,7 +155,7 @@
   width: max-content;
   max-width: 100%;
   /* This card doesn't need container-query-based responsive sizing (that's
-     for cards that actually get squeezed by a grid track) — disabling it
+     for cards that actually get squeezed by a grid track) â€” disabling it
      removes the other half of that same collapse bug. */
   container-type: normal;
 }
@@ -165,7 +165,7 @@
   white-space: nowrap;
   /* Overrides .cmom-value's overflow-wrap: anywhere, which still forces a
      character-by-character break as a last resort even under nowrap once
-     a container is narrower than the text — exactly what was happening
+     a container is narrower than the text â€” exactly what was happening
      here. Content-sized cards should never need that safety net. */
   overflow-wrap: normal;
   word-break: normal;
@@ -176,7 +176,7 @@
 }
 
 /* The pipe/wet-well gauge lives inside a PanelGrid card now (see
-   FlowMonitorDetail/PumpStationDetail), which already owns drag-to-resize —
+   FlowMonitorDetail/PumpStationDetail), which already owns drag-to-resize â€”
    this used to also pin the card to a fixed 200px width with its own
    "resize: both" handle, which capped the gauge at a small fixed size no
    matter how big its PanelGrid panel was made. Fill the panel instead. */
@@ -213,7 +213,7 @@
   color: var(--cmom-text-tertiary);
 }
 
-/* Translucent status badge — colored border/text over a low-alpha fill of
+/* Translucent status badge â€” colored border/text over a low-alpha fill of
    the same color, matching the reference's status/role/severity badges. */
 .cmom-dashboard .cmom-badge {
   display: inline-block;
@@ -249,7 +249,7 @@
 /*
  * Trend graphs (TrendPanel/FlowTrendChart): cards are sized to their own
  * content (a fixed-height chart, not stretched to fill a row) and the grid
- * wraps as many as fit a row at that natural width — no forced 4-up
+ * wraps as many as fit a row at that natural width â€” no forced 4-up
  * stretching, which left wide empty space beside/below a chart that didn't
  * need the full column/row it was being stretched into.
  */
@@ -280,7 +280,7 @@
 }
 
 /*
- * Explorer's outer panel chrome (ContentView.tsx) — same rounded/shadowed
+ * Explorer's outer panel chrome (ContentView.tsx) â€” same rounded/shadowed
  * widget look every other tab's cards use, wrapped around the tree/chart/
  * sidebar split-pane area without touching its own internal layout.
  * Deliberately standalone (not `.cmom-dashboard .cmom-explorer-panel`, and
@@ -558,7 +558,7 @@
 }
 
 /* Collapsible "attributes" disclosure inside a device card (site_info
-   fields) — closed by default so cards aren't crowded with fields the
+   fields) â€” closed by default so cards aren't crowded with fields the
    measurements matter more than; click to expand. */
 .cmom-device-card-attrs {
   border-top: 1px solid var(--cmom-border);
@@ -581,11 +581,11 @@
 }
 
 .cmom-device-card-attrs summary::before {
-  content: '▸ ';
+  content: 'â–¸ ';
 }
 
 .cmom-device-card-attrs[open] summary::before {
-  content: '▾ ';
+  content: 'â–¾ ';
 }
 
 .cmom-device-card-attrs summary:hover {
@@ -653,12 +653,12 @@
 }
 
 /* Overview's top-row tiles that are also links (Flow Monitors/Pump
-   Stations counts -> their tab) — same tile look, but a visible hover state
+   Stations counts -> their tab) â€” same tile look, but a visible hover state
    so it reads as clickable instead of just a static number.
    display: contents removes the <a> itself from the box tree entirely, so
    the .cmom-stat-tile div inside becomes the grid's actual direct child
    again (same sizing as every other stat tile, sharing the same auto row
-   height) — display: flex here previously made the <a> its own flex box
+   height) â€” display: flex here previously made the <a> its own flex box
    with default stretch behavior, which is what made these two tiles grow
    much taller/narrower than their un-linked siblings. */
 .cmom-stat-tile-link {
@@ -681,19 +681,19 @@
 }
 
 /*
- * Explorer tab's settings disclosure (ExplorerSettings.tsx) — replaces the
+ * Explorer tab's settings disclosure (ExplorerSettings.tsx) â€” replaces the
  * old slide-out Drawer. Closed by default; MUI child controls (Select,
  * Switch, InputLabel) keep their own theme styling, this only wraps them.
  */
 
 /* ExplorerSettings sits inline as a flex child at the top of the Explorer
-   tab's flex column (see ContentView.tsx), not as its own full-page pane —
+   tab's flex column (see ContentView.tsx), not as its own full-page pane â€”
    so unlike every other .cmom-dashboard usage (DashboardTabs' tab panes,
    Sidebar, TopBar), it must NOT inherit .cmom-dashboard's height:100%.
    Those other usages each pair the base class with their own explicit
    sizing rule the same way this one does; without it here, this wrapper
    claims the entire Explorer tab height and squeezes the tree/split-pane
-   below it down to 0px — which is exactly "the Explorer tab only shows the
+   below it down to 0px â€” which is exactly "the Explorer tab only shows the
    Explorer Settings button". */
 .cmom-explorer-settings-wrapper {
   height: auto;
@@ -721,11 +721,11 @@
 }
 
 .cmom-explorer-settings summary::before {
-  content: '▸ ';
+  content: 'â–¸ ';
 }
 
 .cmom-explorer-settings[open] summary::before {
-  content: '▾ ';
+  content: 'â–¾ ';
 }
 
 .cmom-explorer-settings summary:hover {
@@ -747,7 +747,7 @@
 
 
 /* ---------------------------------------------------------------------------
- * Device page header (DeviceHeader.tsx) — EXPLORER-004 / EXPLORER-007.
+ * Device page header (DeviceHeader.tsx) â€” EXPLORER-004 / EXPLORER-007.
  *
  * Back button sizes to its own content (`align-self: flex-start` on the bar's
  * flex child) rather than stretching the full page width as the old inline
@@ -763,7 +763,7 @@
 
 /* Back button + device name/location share this row. container-type lets
    the title's font-size (below) respond to the actual space left over next
-   to the fixed-width back button — shrinking the name instead of clipping
+   to the fixed-width back button â€” shrinking the name instead of clipping
    or wrapping it under the button. */
 .cmom-device-header__bar {
   display: flex;
@@ -828,7 +828,7 @@
   color: var(--cmom-text-primary);
 }
 
-/* Identifier (serial/site number) + the KPI strip share this row — the
+/* Identifier (serial/site number) + the KPI strip share this row â€” the
    chips sit immediately to its right instead of wrapping below as their
    own full-width band. Wraps to a second line only once the window is too
    narrow to fit both, rather than ever forcing a horizontal scrollbar. */
@@ -849,7 +849,7 @@
   flex: 0 0 auto;
 }
 
-/* KPI strip (FlowMonitorDetail/PumpStationDetail) — lives inside the fixed
+/* KPI strip (FlowMonitorDetail/PumpStationDetail) â€” lives inside the fixed
    title area, not the draggable PanelGrid below it, so it can't be dragged,
    resized, or hidden by accident: it's meant to always be the first thing
    read on the page. Deliberately NOT .cmom-card: a flat, slightly tinted
@@ -865,9 +865,9 @@
   margin-left: auto;
 }
 
-/* Sized to its own content (no fixed width) — a value/label/badge is never
+/* Sized to its own content (no fixed width) â€” a value/label/badge is never
    clipped or ellipsized; the card grows to whatever width the text inside
-   it actually needs instead. min-width keeps a very short value (e.g. "—")
+   it actually needs instead. min-width keeps a very short value (e.g. "â€”")
    from rendering as a sliver. */
 .cmom-kpi-chip {
   flex: 0 0 auto;
@@ -911,7 +911,7 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Filter controls (widgets/Controls.tsx) — EXPLORER-005.
+ * Filter controls (widgets/Controls.tsx) â€” EXPLORER-005.
  * Segmented radiogroup + text filter field, replacing inline-styled buttons
  * and bare native <select>/<input>.
  * ------------------------------------------------------------------------- */
@@ -1036,7 +1036,7 @@
 
 
 /* ---------------------------------------------------------------------------
- * Light theme — EXPLORER-002.
+ * Light theme â€” EXPLORER-002.
  *
  * The dashboard was authored as a fixed dark terminal palette while the app's
  * MUI theme toggled light/dark, so the Dark Mode switch only ever repainted
@@ -1044,7 +1044,7 @@
  * overrides give the same token names light values, selected by the
  * data-cmom-theme attribute index.tsx mirrors onto <html> from redux state.
  *
- * Only the tokens are redefined — no component rule below needs to know the
+ * Only the tokens are redefined â€” no component rule below needs to know the
  * theme, and nothing changes size or position, so toggling cannot shift layout.
  * Dark stays the default: absent the attribute (first paint, before the effect
  * runs) the original dark values apply, which avoids a light flash.
@@ -1136,4 +1136,175 @@
 .cmom-hach-live__hint {
   color: var(--cmom-text-muted);
   font-size: 12px;
+}
+
+/* Map tab (DeviceMap.tsx): filter column + Leaflet canvas filling the pane. */
+.cmom-map {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.cmom-map__filters {
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cmom-space-4, 16px);
+  padding: var(--cmom-space-4, 16px);
+  overflow-y: auto;
+  background: var(--cmom-surface);
+  border-right: 1px solid var(--cmom-border);
+  font-size: 13px;
+}
+
+.cmom-map__filters section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cmom-map__section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--cmom-space-2, 8px);
+  margin-bottom: 2px;
+}
+
+.cmom-map__section-head .cmom-label {
+  flex: 1 1 auto;
+}
+
+.cmom-map__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cmom-accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cmom-map__option {
+  display: flex;
+  align-items: center;
+  gap: var(--cmom-space-2, 8px);
+  padding: 3px 0;
+  cursor: pointer;
+  color: var(--cmom-text-primary);
+}
+
+.cmom-map__option input {
+  margin: 0;
+  accent-color: var(--cmom-accent);
+}
+
+.cmom-map__option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmom-map__count {
+  color: var(--cmom-text-muted);
+  font-family: var(--cmom-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cmom-map__glyph {
+  display: inline-flex;
+  width: 28px;
+  justify-content: center;
+}
+
+.cmom-map__dot,
+.cmom-map-popup__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.cmom-map-popup__dot {
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.cmom-map__note {
+  color: var(--cmom-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cmom-map__canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+/* divIcon wrapper: Leaflet's default white square background off. */
+.cmom-map-icon {
+  background: none;
+  border: none;
+}
+
+.cmom-map-icon svg {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+.cmom-map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cmom-map-popup__meta {
+  color: #57606a;
+  font-size: 12px;
+}
+
+/* OpenStreetMap tiles are light; in the (default) dark theme, invert them
+   into a dark basemap so the map doesn't glare against the dashboard.
+   Markers and popups sit in other panes and keep their real colors. */
+:root:not([data-cmom-theme='light']) .cmom-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9);
+}
+
+:root:not([data-cmom-theme='light']) .cmom-map .leaflet-container {
+  background: #1b1f24;
+}
+
+/* Pump station marker. ps_icon.webp is a black pump on an opaque white
+   background, so it's used as a luminance mask: the white layer shows where
+   the image is white and drops out where the pump is black, letting the
+   severity color (set inline as this span's background) show through as the
+   pump shape. The mask is 80% of the tile; the uncovered edge also shows the
+   severity color, framing the tile. */
+.cmom-map-pump {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cmom-map-pump__glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  mask-image: url('./assets/ps_icon.webp');
+  mask-mode: luminance;
+  mask-size: 80% 80%;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+
+.cmom-map-icon .cmom-map-pump {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }

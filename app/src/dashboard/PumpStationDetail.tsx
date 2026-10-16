@@ -9,7 +9,7 @@ import { useSqlWetWellInfo } from './useSqlWetWellInfo'
 import WetWellTankGauge from './widgets/WetWellTankGauge'
 import { RuntimeClock } from './widgets/Readings'
 import PanelGrid, { PanelSpec } from './widgets/PanelGrid'
-import { useFitRowHeight } from './widgets/useFitRowHeight'
+import { useAvailableHeight } from './widgets/useAvailableHeight'
 import { buildPumpStationLayout, layoutKindFor } from './pumpStationLayout'
 import PumpKpiRow from './widgets/PumpKpiRow'
 import { severityFromPayload } from './config'
@@ -250,7 +250,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
   // specified card-to-card alignments actually hold. See that module's header.
   const layout = React.useMemo(() => buildPumpStationLayout(analogInputs.length), [analogInputs.length])
   const layoutKind = layoutKindFor(analogInputs.length)
-  const { ref: fitRef, rowHeight } = useFitRowHeight(layout.totalRows, 32)
+  const { ref: fitRef, height: fitHeight } = useAvailableHeight()
 
   return (
     <div style={{ padding: 'var(--cmom-space-4, 16px)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -519,7 +519,7 @@ export default function PumpStationDetail({ deviceKey, deviceNode, onBack }: Pro
           <PanelGrid
             storageKey={`cmom-layout-pump-station-detail-v3-${layoutKind}`}
             panels={panels}
-            rowHeight={rowHeight}
+            fitHeight={fitHeight}
           />
         )
       })()}

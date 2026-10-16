@@ -345,7 +345,8 @@ export interface ManholeInfoResponse {
 // — lets a chart hydrate with values received before the current app
 // session (normally lost on restart, since messageHistory/RingBuffer only
 // ever held live in-memory data). `v` is the message payload's decoded
-// unicode string (not base64), matching Base64Message.toUnicodeString().
+// unicode string (not base64), compacted to the chart's value and
+// timestamp fields (see compactPayload in MessageHistoryStore.ts).
 export interface TopicHistoryRequest {
   connectionId: string
   topic: string
@@ -358,6 +359,9 @@ export interface TopicHistoryPoint {
 
 export interface TopicHistoryResponse {
   points: TopicHistoryPoint[]
+  // Set while the backend's most recent attempt to save history to disk
+  // failed, so charts can say new points aren't surviving a restart.
+  storageError?: string
 }
 
 // Dialog types (browser-compatible versions)

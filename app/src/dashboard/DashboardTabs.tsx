@@ -7,6 +7,7 @@ import Overview from './Overview'
 import FlowMonitors from './FlowMonitors'
 import PumpStations from './PumpStations'
 import Anomalies from './Anomalies'
+import DeviceMap from './DeviceMap'
 import FleetAskPanel from './FleetAskPanel'
 import MqttStoreSync from './store/MqttStoreSync'
 import { AppState } from '../reducers'
@@ -20,6 +21,10 @@ interface Props {
   explorer: React.ReactNode
   tree?: q.Tree<any>
 }
+
+// Indexes into Sidebar's navItems.
+const MAP_TAB = 4
+const EXPLORER_TAB = 5
 
 // Flow Monitors and Pump Stations are routed (their rows link to
 // /flow-monitors/:siteId and /pump-stations/:serial); Anomalies has no
@@ -86,10 +91,17 @@ function DashboardTabs(props: Props) {
   // least once, so its first mount happens already visible and measures
   // correctly from the start. Once true, this never goes back to false, so
   // switching away and back still doesn't remount it.
-  const [hasVisitedExplorer, setHasVisitedExplorer] = React.useState(tab === 4)
+  const [hasVisitedExplorer, setHasVisitedExplorer] = React.useState(tab === EXPLORER_TAB)
+  // Same deferral for the Map: Leaflet sizes itself from its container, which
+  // is 0x0 while hidden. Stays mounted after the first visit so tiles and the
+  // current view survive tab switches.
+  const [hasVisitedMap, setHasVisitedMap] = React.useState(tab === MAP_TAB)
   React.useEffect(() => {
-    if (tab === 4) {
+    if (tab === EXPLORER_TAB) {
       setHasVisitedExplorer(true)
+    }
+    if (tab === MAP_TAB) {
+      setHasVisitedMap(true)
     }
   }, [tab])
 
@@ -126,9 +138,12 @@ function DashboardTabs(props: Props) {
             <div style={paneStyle(3)}>
               <Anomalies />
             </div>
+            <div style={paneStyle(MAP_TAB)}>{hasVisitedMap ? <DeviceMap /> : null}</div>
           </div>
           {/* Not rendered at all until first visited (see hasVisitedExplorer above); stays mounted forever after that so the tree/MQTT view underneath is never remounted by nav switches. */}
-          <div style={{ ...paneStyle(4), position: 'absolute', inset: 0 }}>{hasVisitedExplorer ? props.explorer : null}</div>
+          <div style={{ ...paneStyle(EXPLORER_TAB), position: 'absolute', inset: 0 }}>
+            {hasVisitedExplorer ? props.explorer : null}
+          </div>
           {/* Transient drawer, not a tab/route — only mounted while open, so
               it doesn't hold an LLM chat/idle timers alive in the background. */}
           {askOpen && <FleetAskPanel tree={props.tree} onClose={() => setAskOpen(false)} />}

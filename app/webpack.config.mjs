@@ -89,7 +89,7 @@ export default {
         use: ['style-loader', 'css-loader'],
       },
       {
-        test: /\.(png|jpg|gif)$/i,
+        test: /\.(png|jpg|gif|webp)$/i,
         type: 'asset/resource',
       },
     ],

@@ -95,14 +95,18 @@ say so in a comment (precedent: `widgets/Readings.tsx`).
 | 2026-09-04 | Pump station row-2 panels are no longer `autoHeight` | Content measurement contradicts layouts that require cards to match each other's heights, and it was the jitter feedback loop. Overflowing content scrolls inside its card |
 | 2026-09-04 | PanelGrid layout storage key includes the layout kind | A single key let a 2-analog station load a 3-analog station's saved positions (subset check passes), each station then overwriting the other's — the "cards constantly move" bug |
 | 2026-09-04 | Dashboard tokens are theme-aware via `data-cmom-theme` on `<html>`; dark stays the default | EXPLORER-002. Only token *values* change, so a theme switch cannot move anything. Set on documentElement so MUI Portals and `body` are covered |
+| 2026-09-24 | Flow monitor title = site_info `name` (exact key) — `location` | The old loose "includes('name')" match picked `customer_name` ("ReWa"), and location (usually the manhole ID) came first. Card subtitles follow the same order |
+| 2026-09-24 | Detail pages fit the screen via `PanelGrid fitHeight` (rows sized from the live layout, 4px row floor) | The 18px floor plus 12px gaps on a 45-row layout needed ~1360px of height, so every normal screen scrolled. Replaces `useFitRowHeight` with `useAvailableHeight` |
+| 2026-09-24 | Map tab (`DeviceMap.tsx`, Leaflet + OSM tiles, `mapConfig` in config.ts) held to SC bounds | Coordinates: pump UnitStatus Lat/Long, flow site_info lat/long, manholes SQL GIS X/Y. Basin: pump = SPUMPSTA Basin, flow/manhole = REWAFLOWMETER wrrfbasin — two different vocabularies in one filter. Manholes inherit their flow monitor's severity |
+| 2026-09-24 | DI fault → CRITICAL is decided in `ps_mqtt.py` (`is_faulted`), not in this app | Keeps the no-client-side-severity boundary. NOTE: no pump_stations anomaly topics exist on the broker at all as of this date, and ps_mqtt publishes `pump_stations/{serial}/…` while this app reads `pump_stations/opcua/12299/{serial}/…` — DI severity shows OK everywhere until both are fixed |
+| 2026-09-24 | Local chart history (`MessageHistoryStore`) records only topics `TrendPanel` charts, compacted, in daily append-only files with 30-day retention | BACKEND-001. Recording every full payload grew one JSON file to V8's string limit and silently froze history. The local store is a chart cache; long-term history belongs in SQL. A new charted topic must be added to `CHARTED_TOPICS` |
 | 2026-09-04 | Topic nodes NOT restyled as cards pending a decision | Re-adding a background box behind node text would reopen a bug that was deliberately closed (see `Tree/TreeNode/styles.ts`). Options are in the EXPLORER-001 ticket |
 
 ## Known pre-existing defects (not caused by dashboard work)
 
-- **BACKEND-001** — `MessageHistoryStore` flush throws `RangeError: Invalid string
-  length` on a timer against the live broker. lowdb serializes the whole DB per
-  write; in-memory history exceeds V8's string cap. History never persists, memory
-  grows unbounded. See `tickets/BACKEND-001-message-history-flush.md`.
+- ~~**BACKEND-001**~~ — fixed 2026-09-24. Chart history had frozen at Aug 25 when the
+  single lowdb JSON file hit 529 MB. It is now append-only daily NDJSON with charted
+  topics only and 30-day retention. See `tickets/BACKEND-001-message-history-flush.md`.
 - `yarn dev` is broken on Windows (hardcoded Unix binary path in `app/package.json`).
 - The browser webpack dev server does not complete its first compile. Root cause
   unknown.

@@ -13,7 +13,7 @@ export interface AnomalyTypeEntry {
 
 const ANOMALY_CHILD_NAME = 'anomaly'
 // Metadata branches that aren't measurement/anomaly-bearing channels.
-const EXCLUDED_SEGMENTS = new Set(['site_info', 'ports', 'status', ANOMALY_CHILD_NAME])
+const EXCLUDED_SEGMENTS = new Set(['site_info', 'ports', 'status', 'sql_writes', ANOMALY_CHILD_NAME])
 
 /**
  * Walks a device node (a flow monitor site or pump station serial) looking
@@ -33,14 +33,15 @@ function looksLikePumpStationReadingGroup(node: q.TreeNode<any>): boolean {
   return Boolean(node.edges['Alarm'] || node.edges['ScaledValue'])
 }
 
-// Flow monitors' anomaly topics live under a different root than their value
-// topics (flow_monitors/{site}/... vs flow_monitors/prod/{site}/... — see
-// config.ts's anomalyTopicPrefix), so the "anomaly" leaf for a given channel
-// can't always be found as that channel node's own child. When `anomalyRoot`
-// is given (the equivalent site node in that other tree), each step down
-// deviceNode is mirrored down anomalyRoot so the anomaly lookup follows the
-// right tree. Pump stations pass no anomalyRoot — their anomaly topics really
-// are children of the value nodes, so the old direct lookup still applies.
+// Flow monitors' anomaly topics have their own configurable root (config.ts's
+// anomalyTopicPrefix), which may differ from the value topics' root — it did
+// while values were under flow_monitors/prod/{site}/... — so the "anomaly"
+// leaf for a given channel can't be assumed to be that channel node's own
+// child. When `anomalyRoot` is given (the equivalent site node in the anomaly
+// tree), each step down deviceNode is mirrored down anomalyRoot so the lookup
+// follows the right tree. With both on flow_monitors/{site}/... the two are
+// the same node and this is equivalent to the direct lookup. Pump stations
+// pass no anomalyRoot — their anomaly topics are children of the value nodes.
 export function collectAnomalyTypes(
   deviceNode: q.TreeNode<any>,
   maxDepth: number = 2,

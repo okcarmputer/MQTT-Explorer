@@ -38,10 +38,32 @@ interface Props {
   panels: PanelSpec[]
   cols?: number
   rowHeight?: number
+  // Available height in px (see useAvailableHeight). When set, rowHeight is
+  // derived so the current layout — the saved one if the user rearranged
+  // it, not just the defaults — fills exactly this height. Overrides
+  // `rowHeight` once measured.
+  fitHeight?: number
 }
 
 const BREAKPOINT = 'lg'
 const MARGIN_Y = 12
+// Rows are only a sizing unit (a card's pixel height is h rows plus the
+// h-1 gaps between them), so they can get very short before cards do. The
+// old 18px floor meant a 45-row page needed ~1360px of height before it
+// stopped scrolling; below this floor the page scrolls instead.
+const MIN_FIT_ROW_HEIGHT = 4
+
+function fittedRowHeight(layout: Layout, fitHeight: number): number {
+  const rows = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0)
+  if (rows <= 0) {
+    return MIN_FIT_ROW_HEIGHT
+  }
+  // react-grid-layout's height: rows*rowHeight + (rows-1) gaps + a margin of
+  // container padding above and below = rows*rowHeight + (rows+1)*MARGIN_Y.
+  // The 1px slack keeps rounding from producing a needless scrollbar.
+  const available = fitHeight - 1 - MARGIN_Y * (rows + 1)
+  return Math.max(MIN_FIT_ROW_HEIGHT, Math.floor(available / rows))
+}
 // The card chrome that sits above/around an autoHeight panel's own content
 // — the drag-handle title bar (padding + text + border) plus the content
 // wrapper's own top/bottom padding — none of which the content measurement
@@ -114,9 +136,10 @@ function AutoHeightMeasure({ onHeight, children }: { onHeight: (px: number) => v
  * rather than the whole panel body, so clicking a chart's time-range buttons
  * or dragging to pan a chart doesn't fight with rearranging the page.
  */
-export default function PanelGrid({ storageKey, panels, cols = 12, rowHeight = 32 }: Props) {
+export default function PanelGrid({ storageKey, panels, cols = 12, rowHeight: fixedRowHeight = 32, fitHeight }: Props) {
   const { width, ref } = useResizeDetector()
   const [layout, setLayout] = React.useState<Layout>(() => loadLayout(storageKey, panels))
+  const rowHeight = fitHeight ? fittedRowHeight(layout, fitHeight) : fixedRowHeight
 
   // A panel set changing (different tab, different device type navigated
   // to while this component instance is reused) re-seeds from storage/defaults.

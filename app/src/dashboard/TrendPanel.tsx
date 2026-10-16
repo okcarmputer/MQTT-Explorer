@@ -111,12 +111,17 @@ export default function TrendPanel({
 }: Props) {
   const [timeRange, setTimeRange] = React.useState(defaultTimeRange ?? DEFAULT_TIME_RANGE)
   const [, setTick] = React.useState(0)
+  const [storageError, setStorageError] = React.useState<string | undefined>()
 
   React.useEffect(() => {
     node.messageHistory.setCapacity(TREND_HISTORY_ITEMS, TREND_HISTORY_BYTES)
     let cancelled = false
-    hydrateMessageHistory(node, node.path()).then(added => {
-      if (added && !cancelled) {
+    hydrateMessageHistory(node, node.path()).then(({ added, storageError: error }) => {
+      if (cancelled) {
+        return
+      }
+      setStorageError(error)
+      if (added) {
         setTick(t => t + 1)
       }
     })
@@ -259,6 +264,14 @@ export default function TrendPanel({
       )}
       {lastSeenText && (
         <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>Last seen: {lastSeenText}</div>
+      )}
+      {storageError && (
+        <div
+          style={{ fontSize: 11, marginTop: 2, color: 'var(--cmom-severity-moderate, #ff9800)' }}
+          title={storageError}
+        >
+          Chart history isn't being saved — new points will be lost on restart
+        </div>
       )}
       {(sqlBaselineText ?? baselineText) && (
         <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }} title={`Baseline (MQTT): ${baselineText || 'not available yet'}${sqlBaselineText !== undefined ? ` · Baseline (SQL): ${sqlBaselineText}` : ''}`}>

@@ -64,35 +64,55 @@ export const SQL_GIS_POLL_INTERVAL_MS = 24 * 60 * 60 * 1000
 // starting the server too (server.ts adds the same origin to its CSP).
 export const HACH_LIVE_URL = (process.env.HACH_LIVE_URL || 'http://sv-dg-p01-flow:8050').replace(/\/+$/, '')
 
+// Map tab (DeviceMap.tsx). Tiles load from the internet at view time; point
+// tileUrl at an internal tile server to run without internet access (server
+// mode also needs that origin in server.ts's CSP img-src).
+export const mapConfig = {
+  tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  tileAttribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
+  // South Carolina's extent, [[south, west], [north, east]]. Panning is held
+  // inside it and zooming out stops once the state fills the view.
+  bounds: [
+    [32.03, -83.36],
+    [35.22, -78.49],
+  ] as [[number, number], [number, number]],
+}
+
 export const dashboardConfig = {
   flowMonitors: {
-    // Confirmed against fm_mqtt.py: publishes to flow_monitors/prod/{site_number}/{channel_type},
+    // fm_mqtt.py (flow_monitor repo) publishes to flow_monitors/{site_number}/{channel_type},
     // .../site_info, .../ports/{port_id}, .../status — all retained. {site_number} is the
-    // wildcard segment enumerated by useTopicChildren. ("prod" is a fixed literal environment
-    // segment fm_mqtt.py publishes under, not a device grouping, so it belongs in the prefix.)
-    topicPrefix: 'flow_monitors/prod',
-    // flow_monitors/prod/data_channel_types is a reference/lookup topic (the
-    // catalog of every possible Hach channel id -> name/units/kind), not a
-    // site — it sits directly under the same "flow_monitors/prod" prefix as
-    // every site number, so anywhere sites get enumerated must exclude it
-    // by name (see useTopicChildren's excludeKeys param) or it gets treated
-    // as a 182nd "site". Surfaced separately via the Flow Monitors tab's
-    // "Data Channel Types" button (DataChannelTypes.tsx) instead.
-    metadataChildren: ['data_channel_types'],
-    // Confirmed against the broker's retained set: fm_mqtt.py actually
-    // publishes this catalog at flow_monitors/data_channel_types/{native,virtual}/{id}
-    // — one level up from the site topics, not under "prod" alongside them.
+    // wildcard segment enumerated by useTopicChildren. (From 2026-08-24 to 2026-10-01 prod
+    // published one level deeper, under flow_monitors/prod/...; that segment is gone.)
+    topicPrefix: 'flow_monitors',
+    // Children of "flow_monitors" that aren't sites, so anywhere sites get
+    // enumerated must exclude them by name (see useTopicChildren's
+    // excludeKeys param) or each gets treated as an extra "site":
+    //   data_channel_types — catalog of every Hach channel id -> name/units/kind,
+    //                        surfaced via the Flow Monitors tab's "Data Channel
+    //                        Types" button (DataChannelTypes.tsx) instead
+    //   manhole_info       — manhole reference data (useManholeInfo.ts)
+    //   poller_status      — fm_mqtt.py's poller heartbeat
+    //   prod               — the old flow_monitors/prod/... tree, stale retained
+    //                        messages until they are cleared from the broker
+    metadataChildren: ['data_channel_types', 'manhole_info', 'poller_status', 'prod'],
+    // fm_mqtt.py publishes this catalog at
+    // flow_monitors/data_channel_types/{native,virtual}/{id}.
     dataChannelTypesPath: 'flow_monitors/data_channel_types',
-    // flow_monitors/detector.py publishes flow_monitors/{site}/{channel}/anomaly
-    // and .../baseline (retained) every DETECTOR_INTERVAL_MINUTES — see the
-    // anomaly-detection repo's DASHBOARD_INTEGRATION_INSTRUCTIONS.md. A
-    // channel with no reading that cycle is skipped, not published as "OK",
+    // fm_mqtt.py's poller heartbeat (retained), refreshed at every cycle
+    // start, end and abort — see PollerStatus.tsx. The poll interval is one
+    // hour, so a heartbeat older than pollerStuckAfterMinutes means the
+    // poller itself has stopped, not just that no site had new readings.
+    pollerStatusPath: 'flow_monitors/poller_status',
+    pollerStuckAfterMinutes: 120,
+    // The anomaly-detection repo publishes flow_monitors/{site}/{channel}/anomaly
+    // and .../baseline (retained) — see its DASHBOARD_INTEGRATION_INSTRUCTIONS.md.
+    // A channel with no reading that cycle is skipped, not published as "OK",
     // so a missing leaf here just means "no comparison yet," not "healthy."
-    // NOTE this sits at flow_monitors/{site}/... — NOT under topicPrefix's
-    // "prod" segment — because detector.py publishes it as a sibling tree to
-    // fm_mqtt.py's flow_monitors/prod/{site}/... value topics, not inside it.
-    // anomalyTypeScan's collectAnomalyTypes/deviceSeverity need this passed
-    // separately so they look for the "anomaly" leaf in the right tree.
+    // Same tree as topicPrefix now, so the "anomaly" leaf is a child of the
+    // channel's own value node; kept as its own setting because
+    // anomalyTypeScan's collectAnomalyTypes/deviceSeverity take it separately.
     anomalyTopicPrefix: 'flow_monitors',
     // AnomalyDetection/FlowMonitors/diurnal_detector.py's hour-of-day
     // detector — a second, independent engine from the one above, on a

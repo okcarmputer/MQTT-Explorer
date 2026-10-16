@@ -81,12 +81,12 @@ export function useTopicMessage(node: q.TreeNode<any> | undefined) {
   return node?.message
 }
 
-// Flow monitors' anomaly topics live under a sibling tree (flow_monitors/{site}/...)
-// rather than under the value topics' own prefix (flow_monitors/prod/{site}/...)
-// — see config.ts's anomalyTopicPrefix and anomalyTypeScan's collectAnomalyTypes.
-// Resolves the equivalent site node in that other tree for one device, or
-// undefined if no such prefix applies (pump stations) or the tree doesn't
-// have that path yet (no detector cycle has published there yet).
+// Flow monitors' anomaly topics are configured with their own prefix (see
+// config.ts's anomalyTopicPrefix and anomalyTypeScan's collectAnomalyTypes).
+// Today it is the same tree as the value topics, so this resolves to the
+// device's own node; when the value topics sat under flow_monitors/prod/...
+// it was a sibling tree. Returns undefined if no such prefix applies (pump
+// stations) or the tree doesn't have that path yet.
 export function resolveAnomalyRoot(device: ChildTopic, anomalyRootPrefix?: string) {
   if (!anomalyRootPrefix) {
     return undefined

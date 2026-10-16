@@ -11,6 +11,7 @@ import FlowMonitorDetail from './FlowMonitorDetail'
 import DataChannelTypes from './DataChannelTypes'
 import FlowMonitorMissingAttributes from './FlowMonitorMissingAttributes'
 import HachLiveCharts from './HachLiveCharts'
+import PollerStatus from './PollerStatus'
 import { useFlowSiteInfo } from './useFlowSiteInfo'
 import { useFlowPortInfo, extractDiameter, FlowPortInfo } from './useFlowPortInfo'
 import PipeGauge from './widgets/PipeGauge'
@@ -116,7 +117,7 @@ function FlowMonitorLevelGauge({ node, ports }: { node: q.TreeNode<any>; ports: 
   )
 }
 
-function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; siteInfo: ReturnType<typeof useFlowSiteInfo>; ports: Record<string, FlowPortInfo[]> }) {
+function FlowMonitorsGrid({ rows, siteInfo, ports, tree }: { rows: FlowMonitorRow[]; siteInfo: ReturnType<typeof useFlowSiteInfo>; ports: Record<string, FlowPortInfo[]>; tree?: q.Tree<any> }) {
   const navigate = useNavigate()
 
   return (
@@ -151,6 +152,7 @@ function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; s
         >
           Live Charts
         </button>
+        <PollerStatus tree={tree} />
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
         <SimpleDeviceGrid
@@ -160,9 +162,16 @@ function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; s
           renderCard={row => {
             // site_info's field casing isn't documented anywhere in this
             // repo (see useFlowSiteInfo), so this looks for any key that
-            // reads as "location" rather than assuming exact casing.
+            // reads as "location" rather than assuming exact casing. Flow
+            // monitor name ("name", exact — "customer_name" also exists)
+            // comes first, then location, which is usually the manhole ID.
             const info = siteInfo[row.key] ?? {}
+            const nameKey = Object.keys(info).find(k => k.toLowerCase() === 'name')
             const locationKey = Object.keys(info).find(k => k.toLowerCase().includes('location'))
+            const subtitle = [nameKey && info[nameKey], locationKey && info[locationKey]]
+              .map(part => (part || '').trim())
+              .filter(Boolean)
+              .join(' — ')
             return (
               <SimpleDeviceCard
                 key={row.key}
@@ -171,7 +180,7 @@ function FlowMonitorsGrid({ rows, siteInfo, ports }: { rows: FlowMonitorRow[]; s
                 severity={row.severity}
                 lastUpdate={row.lastUpdate}
                 linkTo={`/flow-monitors/${row.key}`}
-                subtitle={locationKey ? info[locationKey] : undefined}
+                subtitle={subtitle || undefined}
               >
                 {row.node && <FlowMonitorLevelGauge node={row.node} ports={ports[row.key] ?? []} />}
               </SimpleDeviceCard>
@@ -250,7 +259,7 @@ function FlowMonitors({ tree }: Props) {
 
   return (
     <Routes>
-      <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} ports={ports} />} />
+      <Route path="/flow-monitors" element={<FlowMonitorsGrid rows={rows} siteInfo={siteInfo} ports={ports} tree={tree} />} />
       <Route path="/flow-monitors/data-channel-types" element={<DataChannelTypes />} />
       <Route path="/flow-monitors/missing-attributes" element={<FlowMonitorMissingAttributes />} />
       <Route path="/flow-monitors/live-charts" element={<LiveChartsAllSites />} />
